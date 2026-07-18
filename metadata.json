@@ -1,0 +1,6 @@
+{
+  "name": "Belle Nuit - Moda Íntima & Sexshop",
+  "description": "Um e-commerce de luxo extremamente elegante e discreto de moda íntima e sexshop, com catálogo completo, carrinho de compras, canal direto de atendimento e um modo de pânico para navegação ultra-discreta.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
