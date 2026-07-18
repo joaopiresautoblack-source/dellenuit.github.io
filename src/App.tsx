@@ -58,22 +58,11 @@ export default function App() {
     const savedFavorites = localStorage.getItem("bellenuit_favorites");
 
     const unsubscribe = onSnapshot(collection(db, "produtos"), (snapshot) => {
-      if (snapshot.empty) {
-        // Automatically seed with default EXAMPLE_PRODUCTS if Firestore is empty
-        EXAMPLE_PRODUCTS.forEach(async (prod) => {
-          try {
-            await setDoc(doc(db, "produtos", prod.id), prod);
-          } catch (err) {
-            console.error("Erro ao inicializar produto no Firestore:", err);
-          }
-        });
-      } else {
-        const productsList: Product[] = [];
-        snapshot.forEach((docSnap) => {
-          productsList.push({ id: docSnap.id, ...docSnap.data() } as Product);
-        });
-        setProducts(productsList);
-      }
+      const productsList: Product[] = [];
+      snapshot.forEach((docSnap) => {
+        productsList.push({ id: docSnap.id, ...docSnap.data() } as Product);
+      });
+      setProducts(productsList);
     }, (error) => {
       console.error("Erro ao escutar Firestore 'produtos':", error);
     });
