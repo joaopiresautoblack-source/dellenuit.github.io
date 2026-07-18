@@ -697,7 +697,7 @@ export default function AdminModal({
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === "241003") {
+    if (password === "082426Ja#*") {
       setIsAuthenticated(true);
       setLoginError("");
       showToast("Painel Administrativo Desbloqueado!");

@@ -111,7 +111,8 @@ export default function Header({
               className="flex items-center space-x-1.5 bg-gold-500/10 hover:bg-gold-500/20 border border-gold-400/20 hover:border-gold-400/60 text-gold-200 px-3 py-1.5 sm:py-2 rounded-full text-xs font-semibold cursor-pointer transition-all"
             >
               <MessageCircle className="w-3.5 h-3.5 text-gold-400" />
-              <span>Fale com a Loja</span>
+              <span className="hidden sm:inline">Fale com a Loja</span>
+              <span className="sm:hidden">Contato</span>
             </button>
 
             {/* Shopping Cart Trigger */}

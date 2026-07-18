@@ -118,22 +118,27 @@ export default function ContactModal({ isOpen, onClose }: ContactModalProps) {
               </a>
 
               {/* Email Card */}
-              <div className="flex items-center space-x-3 bg-stone-950/40 border border-stone-800 p-4 rounded-2xl">
-                <div className="w-10 h-10 rounded-xl bg-gold-500/10 text-gold-400 flex items-center justify-center flex-shrink-0">
+              <a
+                href="mailto:bellenuitcg@gmail.com"
+                className="flex items-center space-x-3 bg-stone-950/40 hover:bg-stone-950 border border-stone-800 hover:border-gold-400/40 p-4 rounded-2xl text-left transition-all cursor-pointer group"
+              >
+                <div className="w-10 h-10 rounded-xl bg-gold-500/10 text-gold-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
                   <Mail className="w-5 h-5" />
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-stone-200">E-mail</h4>
-                  <span className="block text-[10px] text-gold-400 font-semibold mt-0.5">contato@bellenuit...</span>
+                  <span className="block text-[10px] text-gold-400 font-semibold mt-0.5 break-all">
+                    bellenuitcg@gmail.com
+                  </span>
                   <span className="block text-[10px] text-stone-500 mt-0.5">Retorno rápido</span>
                 </div>
-              </div>
+              </a>
             </div>
 
             {/* Work hours info */}
             <div className="flex items-center space-x-2 text-[11px] text-stone-400 bg-stone-950/20 border border-stone-800/40 p-3 rounded-xl">
               <Clock className="w-3.5 h-3.5 text-gold-400" />
-              <span>Horário de atendimento: Segunda a Sábado, das 09h às 21h (Horário de Brasília).</span>
+              <span>Horário de atendimento: Segunda a Sábado, das 13h às 17h (Fuso Horário UTC-4).</span>
             </div>
 
             {/* Direct Contact Form */}

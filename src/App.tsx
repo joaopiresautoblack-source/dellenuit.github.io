@@ -335,7 +335,7 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-8">
             {filteredProducts.map((product) => (
               <ProductCard
                 key={product.id}
@@ -429,7 +429,6 @@ export default function App() {
           <div className="space-y-3">
             <h4 className="font-bold text-stone-200 uppercase tracking-widest">Segurança e Discrição</h4>
             <ul className="space-y-2 text-stone-500">
-              <li className="flex items-center gap-1.5">✓ Caixa parda (uso de sacola preta discreta).</li>
               <li className="flex items-center gap-1.5">✓ Entregas locais apenas com sacola preta discreta.</li>
               <li className="flex items-center gap-1.5">✓ Sem referência a sexshop ou produtos na fatura do cartão.</li>
             </ul>

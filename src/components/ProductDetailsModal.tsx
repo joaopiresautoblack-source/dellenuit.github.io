@@ -360,15 +360,11 @@ export default function ProductDetailsModal({
                 <ul className="space-y-1 text-[11px] text-stone-300 font-sans">
                   <li className="flex items-start gap-1">
                     <span className="text-emerald-500 font-bold">✓</span>
-                    <span><strong>Caixa parda:</strong> Embalagem externa em caixa parda neutra, lisa e sem nenhuma identificação da loja ou produto.</span>
+                    <span><strong>Sacola preta discreta:</strong> Embalagem de alta resistência, totalmente opaca e sem nenhuma identificação da loja ou do produto.</span>
                   </li>
                   <li className="flex items-start gap-1">
                     <span className="text-emerald-500 font-bold">✓</span>
-                    <span><strong>Sacola preta discreta:</strong> Uso de sacola preta discreta de alta resistência e totalmente opaca para embalar o item.</span>
-                  </li>
-                  <li className="flex items-start gap-1">
-                    <span className="text-emerald-500 font-bold">✓</span>
-                    <span><strong>Entregas locais:</strong> Entregas locais realizadas exclusivamente com sacola preta discreta e sem logos externos.</span>
+                    <span><strong>Entregas locais:</strong> Realizadas exclusivamente de forma discreta com sacola preta e sem logos externos.</span>
                   </li>
                 </ul>
               </div>
