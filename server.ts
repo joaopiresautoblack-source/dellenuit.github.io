@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 
@@ -28,15 +27,26 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next();
 });
 
-// Initialize Gemini Client
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+// Lazy initialization helper for Gemini Client to prevent cold start failures
+let aiClient: GoogleGenAI | null = null;
+
+function getGeminiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("Chave de API do Gemini não configurada no servidor. Por favor, adicione a variável GEMINI_API_KEY nas configurações/ambiente.");
     }
+    aiClient = new GoogleGenAI({
+      apiKey: apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
   }
-});
+  return aiClient;
+}
 
 // API Routes
 app.post("/api/ai/parse-product", async (req, res) => {
@@ -52,6 +62,8 @@ app.post("/api/ai/parse-product", async (req, res) => {
         error: "Chave de API do Gemini não configurada no servidor. Por favor, configure a GEMINI_API_KEY." 
       });
     }
+
+    const ai = getGeminiClient();
 
     const match = image.match(/^data:(image\/[a-zA-Z+-]+);base64,(.+)$/);
     let imagePart;
@@ -218,6 +230,8 @@ app.post("/api/ai/image", async (req, res) => {
     // Add prompt text part
     parts.push({ text: prompt });
 
+    const ai = getGeminiClient();
+
     const response = await ai.models.generateContent({
       model: "gemini-3.1-flash-lite-image",
       contents: { parts },
@@ -263,6 +277,8 @@ app.post("/api/assistant", async (req, res) => {
         text: "Olá! Sou a Consultora Virtual da Sensuelle. No momento estou operando de forma offline, mas posso te garantir que nossa loja oferece o que há de melhor em lingeries luxuosas e bem-estar íntimo. Como posso ajudar com suas escolhas hoje?" 
       });
     }
+
+    const ai = getGeminiClient();
 
     const systemInstruction = `Você é a Consultora Virtual da "Bellenuit - Moda Íntima & Sexshop".
 Seu objetivo é ajudar os clientes de forma extremamente elegante, profissional, empática e respeitosa, mantendo um tom acolhedor e sutilmente sensual, sem nunca ser vulgar.
@@ -330,6 +346,7 @@ Diretrizes adicionais:
 async function startServer() {
   // Vite middleware setup
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

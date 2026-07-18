@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 import { Product } from "../types";
 import { EXAMPLE_PRODUCTS } from "../data";
+import { db, auth } from "../firebase";
+import { doc, setDoc, deleteDoc } from "firebase/firestore";
+import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -276,7 +279,9 @@ export default function AdminModal({
   showToast
 }: AdminModalProps) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string>("");
 
   // Product Form states
@@ -423,6 +428,17 @@ export default function AdminModal({
   // Action Confirmation States
   const [confirmClearAll, setConfirmClearAll] = useState<boolean>(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && user.uid === "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // AI Ad Scan States
   const [scanLoading, setScanLoading] = useState<boolean>(false);
@@ -699,26 +715,85 @@ export default function AdminModal({
 
   if (!isOpen) return null;
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === "082426Ja#*") {
-      setIsAuthenticated(true);
-      setLoginError("");
-      showToast("Painel Administrativo Desbloqueado!");
-    } else {
-      setLoginError("Senha incorreta. Tente novamente.");
+    if (!email || !password) {
+      setLoginError("Preencha o e-mail e a senha.");
+      return;
+    }
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      if (user.uid === "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+        setIsAuthenticated(true);
+        showToast("Painel Administrativo Desbloqueado!");
+      } else {
+        setLoginError("Acesso negado: Você não possui permissão de administrador.");
+        await signOut(auth);
+      }
+    } catch (err: any) {
+      console.error("Erro no login:", err);
+      if (
+        err.code === "auth/user-not-found" || 
+        err.code === "auth/wrong-password" || 
+        err.code === "auth/invalid-credential" || 
+        err.code === "auth/invalid-email"
+      ) {
+        setLoginError("E-mail ou senha incorretos.");
+      } else {
+        setLoginError("Erro ao autenticar: " + (err.message || err.code));
+      }
+    } finally {
+      setLoginLoading(false);
     }
   };
 
-  const handleImportExamples = () => {
-    onSaveProducts(EXAMPLE_PRODUCTS);
-    showToast("Produtos de demonstração carregados com sucesso!");
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setIsAuthenticated(false);
+      showToast("Você saiu do painel administrativo.");
+    } catch (err) {
+      console.error("Erro ao deslogar:", err);
+      showToast("Erro ao sair do painel.");
+    }
   };
 
-  const handleClearAll = () => {
+  const handleImportExamples = async () => {
+    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+      return;
+    }
+    try {
+      showToast("Carregando produtos de demonstração no Firestore...");
+      for (const prod of EXAMPLE_PRODUCTS) {
+        await setDoc(doc(db, "produtos", prod.id), prod);
+      }
+      showToast("Produtos de demonstração carregados com sucesso!");
+    } catch (err) {
+      console.error("Erro ao importar produtos:", err);
+      showToast("Erro ao carregar exemplos no Firestore.");
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+      return;
+    }
     if (confirmClearAll) {
-      onSaveProducts([]);
-      showToast("Todos os produtos foram removidos.");
+      try {
+        showToast("Removendo todos os produtos do Firestore...");
+        for (const p of products) {
+          await deleteDoc(doc(db, "produtos", p.id));
+        }
+        showToast("Todos os produtos foram removidos.");
+      } catch (err) {
+        console.error("Erro ao remover todos os produtos:", err);
+        showToast("Erro ao remover produtos.");
+      }
       setConfirmClearAll(false);
     } else {
       setConfirmClearAll(true);
@@ -759,11 +834,19 @@ export default function AdminModal({
     setFormTag(product.tag || "");
   };
 
-  const handleDeleteClick = (productId: string) => {
+  const handleDeleteClick = async (productId: string) => {
+    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+      return;
+    }
     if (confirmDeleteId === productId) {
-      const updated = products.filter(p => p.id !== productId);
-      onSaveProducts(updated);
-      showToast("Produto excluído com sucesso.");
+      try {
+        await deleteDoc(doc(db, "produtos", productId));
+        showToast("Produto excluído com sucesso do Firestore.");
+      } catch (err) {
+        console.error("Erro ao excluir do Firestore:", err);
+        showToast("Erro ao excluir do Firestore.");
+      }
       setConfirmDeleteId(null);
     } else {
       setConfirmDeleteId(productId);
@@ -774,8 +857,12 @@ export default function AdminModal({
     }
   };
 
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+      return;
+    }
     if (!formName || !formPrice) {
       showToast("Preencha o nome e preço do produto.");
       return;
@@ -800,17 +887,19 @@ export default function AdminModal({
       tag: formTag.trim() || undefined
     };
 
-    let updatedList;
-    if (isEditing && editingId) {
-      updatedList = products.map(p => p.id === editingId ? newProduct : p);
-      showToast("Produto atualizado com sucesso!");
-    } else {
-      updatedList = [newProduct, ...products];
-      showToast("Produto cadastrado com sucesso!");
+    try {
+      if (isEditing && editingId) {
+        await setDoc(doc(db, "produtos", editingId), newProduct);
+        showToast("Produto atualizado com sucesso no Firestore!");
+      } else {
+        await setDoc(doc(db, "produtos", newProduct.id), newProduct);
+        showToast("Produto cadastrado com sucesso no Firestore!");
+      }
+      resetForm();
+    } catch (err) {
+      console.error("Erro ao salvar produto no Firestore:", err);
+      showToast("Erro ao salvar produto no Firestore.");
     }
-
-    onSaveProducts(updatedList);
-    resetForm();
   };
 
   // Quick unsplash image options helper
@@ -846,12 +935,22 @@ export default function AdminModal({
               <p className="text-[10px] text-stone-400 uppercase tracking-widest font-semibold">Área Secreta de Controle de Catálogo</p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1.5 rounded-full bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            {isAuthenticated && (
+              <button
+                onClick={handleLogout}
+                className="px-3 py-1.5 rounded-xl bg-red-950/30 border border-red-500/20 hover:bg-red-900/40 hover:border-red-500/40 text-red-300 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+              >
+                Sair
+              </button>
+            )}
+            <button 
+              onClick={onClose}
+              className="p-1.5 rounded-full bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Auth Barrier */}
@@ -863,27 +962,39 @@ export default function AdminModal({
             <div className="space-y-1">
               <h3 className="text-md font-bold font-display text-stone-200">Acesso Restrito</h3>
               <p className="text-xs text-stone-400 leading-relaxed">
-                Esta é uma seção secreta para administradores. Digite a senha para continuar e gerenciar os produtos.
+                Esta é uma seção secreta para administradores. Digite seu e-mail e senha para gerenciar o catálogo.
               </p>
             </div>
             <form onSubmit={handleLogin} className="w-full space-y-3">
-              <div className="space-y-1">
+              <div className="space-y-2.5">
+                <input 
+                  type="email"
+                  placeholder="E-mail de Administrador"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 rounded-xl px-4 py-3.5 text-base sm:text-xs text-stone-200 text-center placeholder-stone-600 focus:outline-none transition-all"
+                  required
+                  disabled={loginLoading}
+                  autoFocus
+                />
                 <input 
                   type="password"
-                  placeholder="Digite a senha de acesso"
+                  placeholder="Digite sua senha de acesso"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 rounded-xl px-4 py-3.5 text-base sm:text-xs text-stone-200 text-center placeholder-stone-600 focus:outline-none transition-all"
-                  autoFocus
+                  required
+                  disabled={loginLoading}
                 />
-                <span className="block text-[10px] text-stone-500 italic mt-1">Acesso exclusivo com a chave numérica de 6 dígitos</span>
+                <span className="block text-[10px] text-stone-500 italic mt-1">Acesso exclusivo para administradores autenticados via Firebase</span>
               </div>
-              {loginError && <p className="text-[11px] text-red-400">{loginError}</p>}
+              {loginError && <p className="text-[11px] text-red-400 font-medium">{loginError}</p>}
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-gold-500 to-burgundy-600 hover:from-gold-400 hover:to-burgundy-500 text-white font-bold uppercase tracking-widest text-[11px] py-3 rounded-xl transition-all cursor-pointer shadow-lg"
+                disabled={loginLoading}
+                className="w-full bg-gradient-to-r from-gold-500 to-burgundy-600 hover:from-gold-400 hover:to-burgundy-500 text-white font-bold uppercase tracking-widest text-[11px] py-3 rounded-xl transition-all cursor-pointer shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                Desbloquear Painel
+                {loginLoading ? "Autenticando..." : "Desbloquear Painel"}
               </button>
             </form>
           </div>

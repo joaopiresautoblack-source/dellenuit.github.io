@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Product, CartItem } from "./types";
 import { EXAMPLE_PRODUCTS } from "./data";
+import { db } from "./firebase";
+import { collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 
 // Import custom structured sub-components
 import Header from "./components/Header";
@@ -54,20 +56,27 @@ export default function App() {
     document.title = "bellenuitcg";
     const savedCart = localStorage.getItem("bellenuit_cart");
     const savedFavorites = localStorage.getItem("bellenuit_favorites");
-    const savedProducts = localStorage.getItem("bellenuit_products");
 
-    if (savedProducts) {
-      try {
-        setProducts(JSON.parse(savedProducts));
-      } catch (e) {
-        console.error("Erro carregando produtos:", e);
-        setProducts(EXAMPLE_PRODUCTS);
-        localStorage.setItem("bellenuit_products", JSON.stringify(EXAMPLE_PRODUCTS));
+    const unsubscribe = onSnapshot(collection(db, "produtos"), (snapshot) => {
+      if (snapshot.empty) {
+        // Automatically seed with default EXAMPLE_PRODUCTS if Firestore is empty
+        EXAMPLE_PRODUCTS.forEach(async (prod) => {
+          try {
+            await setDoc(doc(db, "produtos", prod.id), prod);
+          } catch (err) {
+            console.error("Erro ao inicializar produto no Firestore:", err);
+          }
+        });
+      } else {
+        const productsList: Product[] = [];
+        snapshot.forEach((docSnap) => {
+          productsList.push({ id: docSnap.id, ...docSnap.data() } as Product);
+        });
+        setProducts(productsList);
       }
-    } else {
-      setProducts(EXAMPLE_PRODUCTS);
-      localStorage.setItem("bellenuit_products", JSON.stringify(EXAMPLE_PRODUCTS));
-    }
+    }, (error) => {
+      console.error("Erro ao escutar Firestore 'produtos':", error);
+    });
 
     if (savedCart) {
       try {
@@ -83,12 +92,13 @@ export default function App() {
         console.error("Erro carregando favoritos:", e);
       }
     }
+
+    return () => unsubscribe();
   }, []);
 
-  // Save products on changes
+  // Save products on changes (deprecated, we save directly to Firestore now)
   const saveProductsToLocalStorage = (newProducts: Product[]) => {
-    setProducts(newProducts);
-    localStorage.setItem("bellenuit_products", JSON.stringify(newProducts));
+    // No-op - AdminModal directly saves to Firestore
   };
 
   // Save cart on changes
