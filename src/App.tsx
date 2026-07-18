@@ -51,6 +51,7 @@ export default function App() {
 
   // Load products, cart & favorites on mount
   useEffect(() => {
+    document.title = "bellenuitcg";
     const savedCart = localStorage.getItem("bellenuit_cart");
     const savedFavorites = localStorage.getItem("bellenuit_favorites");
     const savedProducts = localStorage.getItem("bellenuit_products");

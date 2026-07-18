@@ -25,8 +25,8 @@ interface AdminModalProps {
   showToast: (msg: string) => void;
 }
 
-// Utility function to resize and compress base64 images to prevent 413 Payload Too Large / HTML response errors
-const resizeImage = (base64Str: string, maxDimension: number = 1024): Promise<string> => {
+// Utility function to resize and compress base64 images to prevent 413 Payload Too Large / QuotaExceededError / HTML response errors
+const resizeImage = (base64Str: string, maxDimension: number = 800): Promise<string> => {
   return new Promise((resolve) => {
     try {
       const img = new Image();
@@ -52,9 +52,13 @@ const resizeImage = (base64Str: string, maxDimension: number = 1024): Promise<st
 
           const ctx = canvas.getContext("2d");
           if (ctx) {
+            // Fill white background for JPEGs to preserve quality and avoid black fill on transparent layers
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0, width, height);
-            // No compression - Use lossless PNG to preserve absolute detail and quality
-            const resizedBase64 = canvas.toDataURL("image/png");
+            
+            // Compress heavily using JPEG format (0.75 quality) to ensure super small base64 footprint
+            const resizedBase64 = canvas.toDataURL("image/jpeg", 0.75);
             resolve(resizedBase64);
           } else {
             resolve(base64Str);
@@ -102,9 +106,12 @@ const cropImageCanvas = (
 
           const ctx = canvas.getContext("2d");
           if (ctx) {
+            // White canvas bg
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, targetW, targetH);
             ctx.drawImage(img, sourceX, sourceY, sourceW, sourceH, 0, 0, targetW, targetH);
-            // Lossless - Use PNG format to prevent compression artifacting
-            resolve(canvas.toDataURL("image/png"));
+            // Save as space-saving JPEG
+            resolve(canvas.toDataURL("image/jpeg", 0.75));
           } else {
             resolve(base64Str);
           }
@@ -237,9 +244,9 @@ const enhanceImageAction = async (
             // We still have the contrast/saturate/brightness applied directly via context filter, so we continue!
           }
 
-          // Lossless - Return PNG format to preserve maximum visual detail, sharp edges, and pixel accuracy with no compression
+          // Return JPEG format to keep base64 extremely lightweight
           try {
-            resolve(canvas.toDataURL("image/png"));
+            resolve(canvas.toDataURL("image/jpeg", 0.75));
           } catch (toDataUrlErr) {
             console.warn("toDataURL falhou devido a restrições de segurança de origem da imagem externa. Retornando imagem original.");
             resolve(base64Str);
@@ -448,8 +455,8 @@ export default function AdminModal({
   const handleAiAdScan = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        showToast("Por favor, selecione uma imagem de anúncio menor que 10MB.");
+      if (file.size > 50 * 1024 * 1024) {
+        showToast("Por favor, selecione uma imagem de anúncio menor que 50MB.");
         return;
       }
       setScanLoading(true);
@@ -568,8 +575,8 @@ export default function AdminModal({
   const handleAiRefChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 3 * 1024 * 1024) {
-        showToast("Por favor, selecione uma imagem menor que 3MB.");
+      if (file.size > 50 * 1024 * 1024) {
+        showToast("Por favor, selecione uma imagem menor que 50MB.");
         return;
       }
       const reader = new FileReader();
@@ -641,26 +648,23 @@ export default function AdminModal({
       showToast(`Processando ${fileList.length} imagem(ns)...`);
 
       Promise.all(fileList.map((file: File) => {
-        return new Promise<string>((resolve, reject) => {
-          if (file.size > 8 * 1024 * 1024) {
-            showToast(`A imagem ${file.name} é muito grande. Escolha fotos menores que 8MB.`);
-            reject(new Error("File too large"));
-            return;
-          }
+        return new Promise<string | null>((resolve) => {
           const reader = new FileReader();
           reader.onloadend = async () => {
             if (typeof reader.result === "string") {
               try {
-                const compressed = await resizeImage(reader.result, 1024);
+                // Compress and resize to max 800px width/height as an ultra-compact JPEG
+                const compressed = await resizeImage(reader.result, 800);
                 resolve(compressed);
               } catch (err) {
+                // Fallback to original base64 if resizing fails
                 resolve(reader.result);
               }
             } else {
-              reject(new Error("Read error"));
+              resolve(null);
             }
           };
-          reader.onerror = () => reject(new Error("File reading error"));
+          reader.onerror = () => resolve(null);
           reader.readAsDataURL(file);
         });
       })).then((results) => {
@@ -685,7 +689,7 @@ export default function AdminModal({
             return current;
           });
 
-          showToast("Imagem(ns) carregada(s) com sucesso!");
+          showToast("Imagem(ns) anexada(s) com sucesso!");
         }
       }).catch((err) => {
         console.error("Erro no upload múltiplo:", err);
@@ -828,8 +832,8 @@ export default function AdminModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="relative bg-burgundy-950 border border-gold-600/25 rounded-3xl w-full max-w-4xl max-h-[90vh] flex flex-col text-stone-100 shadow-2xl overflow-hidden animate-in fade-in duration-250">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/80 backdrop-blur-sm flex items-center justify-center sm:p-4 p-0">
+      <div className="relative bg-burgundy-950 border-0 sm:border border-gold-600/25 rounded-none sm:rounded-3xl w-full max-w-4xl h-full sm:h-auto sm:max-h-[90vh] flex flex-col text-stone-100 shadow-2xl overflow-hidden animate-in fade-in duration-250">
         
         {/* Header */}
         <div className="p-6 border-b border-burgundy-900/60 flex justify-between items-center bg-stone-950/45">
@@ -869,7 +873,7 @@ export default function AdminModal({
                   placeholder="Digite a senha de acesso"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 rounded-xl px-4 py-3 text-xs text-stone-200 text-center placeholder-stone-600 focus:outline-none transition-all"
+                  className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 rounded-xl px-4 py-3.5 text-base sm:text-xs text-stone-200 text-center placeholder-stone-600 focus:outline-none transition-all"
                   autoFocus
                 />
                 <span className="block text-[10px] text-stone-500 italic mt-1">Acesso exclusivo com a chave numérica de 6 dígitos</span>
@@ -945,13 +949,11 @@ export default function AdminModal({
                           className="hidden"
                           disabled={scanLoading}
                         />
-                        <button
-                          type="button"
-                          onClick={() => document.getElementById("ai-ad-uploader")?.click()}
-                          disabled={scanLoading}
+                        <label
+                          htmlFor={scanLoading ? undefined : "ai-ad-uploader"}
                           className={`w-full py-3 px-4 rounded-xl border border-stone-850 hover:border-gold-500/30 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                             scanLoading 
-                              ? "bg-stone-900/50 text-stone-500 border-stone-900" 
+                              ? "bg-stone-900/50 text-stone-500 border-stone-900 pointer-events-none" 
                               : "bg-stone-950 hover:bg-stone-900 text-gold-400 hover:text-gold-300"
                           }`}
                         >
@@ -966,7 +968,7 @@ export default function AdminModal({
                               <span>Carregar Foto do Anúncio / Oferta</span>
                             </>
                           )}
-                        </button>
+                        </label>
                       </div>
 
                       {scanError && (
@@ -987,7 +989,7 @@ export default function AdminModal({
                         placeholder="Ex: Conjunto Belle Noite Renda"
                         value={formName}
                         onChange={(e) => setFormName(e.target.value)}
-                        className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl px-3 py-2 text-stone-200 focus:outline-none"
+                        className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none"
                       />
                     </div>
 
@@ -1002,7 +1004,7 @@ export default function AdminModal({
                           placeholder="189.90"
                           value={formPrice}
                           onChange={(e) => setFormPrice(e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl px-3 py-2 text-stone-200 focus:outline-none"
+                          className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none"
                         />
                       </div>
                       <div className="space-y-1">
@@ -1010,7 +1012,7 @@ export default function AdminModal({
                         <select 
                           value={formCategory}
                           onChange={(e) => setFormCategory(e.target.value as "Lingerie" | "Sex Shop")}
-                          className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl px-3 py-2 text-stone-200 focus:outline-none"
+                          className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none"
                         >
                           <option value="Lingerie">Lingerie</option>
                           <option value="Sex Shop">Sex Shop</option>
@@ -1026,7 +1028,7 @@ export default function AdminModal({
                         value={formDescription}
                         onChange={(e) => setFormDescription(e.target.value)}
                         rows={2}
-                        className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl p-3 text-stone-200 focus:outline-none resize-none"
+                        className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl p-3 text-base sm:text-xs text-stone-200 focus:outline-none resize-none"
                       />
                     </div>
 
@@ -1043,6 +1045,7 @@ export default function AdminModal({
                       {/* Hidden Native File Input with multiple allowed */}
                       <input 
                         type="file"
+                        id="product-photos-uploader"
                         ref={fileInputRef}
                         onChange={handleFileChange}
                         accept="image/*"
@@ -1159,15 +1162,14 @@ export default function AdminModal({
                           );
                         })}
 
-                        {/* Button to add more inside the grid */}
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
+                        {/* Label as trigger to add more inside the grid */}
+                        <label
+                          htmlFor="product-photos-uploader"
                           className="relative aspect-square rounded-xl border border-dashed border-stone-800 hover:border-gold-400/30 hover:bg-stone-900/40 flex flex-col items-center justify-center gap-1 text-stone-500 hover:text-stone-300 transition-all cursor-pointer"
                         >
                           <Plus className="w-5 h-5" />
                           <span className="text-[8px] uppercase tracking-widest font-extrabold">Nova Foto</span>
-                        </button>
+                        </label>
                       </div>
 
                       {/* URL insertion input option */}
@@ -1176,7 +1178,7 @@ export default function AdminModal({
                           type="text"
                           id="new-photo-url-input"
                           placeholder="Adicionar foto por link (URL)..."
-                          className="flex-1 bg-stone-950 border border-stone-850 rounded-lg px-2.5 py-1.5 text-[11px] text-stone-300 focus:outline-none focus:border-gold-500/40"
+                          className="flex-1 bg-stone-950 border border-stone-850 rounded-lg px-2.5 py-2 text-base sm:text-[11px] text-stone-300 focus:outline-none focus:border-gold-500/40"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
@@ -1318,7 +1320,7 @@ export default function AdminModal({
                           placeholder="P, M, G, GG"
                           value={formSizes}
                           onChange={(e) => setFormSizes(e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-1.5 text-stone-200 focus:outline-none"
+                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none focus:border-gold-500/50"
                         />
                       </div>
                       <div className="space-y-1">
@@ -1328,7 +1330,7 @@ export default function AdminModal({
                           placeholder="Preto, Vermelho"
                           value={formColors}
                           onChange={(e) => setFormColors(e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-1.5 text-stone-200 focus:outline-none"
+                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none focus:border-gold-500/50"
                         />
                       </div>
                     </div>
@@ -1341,7 +1343,7 @@ export default function AdminModal({
                           placeholder="Sem tag"
                           value={formTag}
                           onChange={(e) => setFormTag(e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-1.5 text-stone-200 focus:outline-none"
+                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none focus:border-gold-500/50"
                         />
                       </div>
                       <div className="space-y-1">
@@ -1351,7 +1353,7 @@ export default function AdminModal({
                           placeholder="Exclusivo, Toque Macio"
                           value={formDetails}
                           onChange={(e) => setFormDetails(e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-1.5 text-stone-200 focus:outline-none"
+                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none focus:border-gold-500/50"
                         />
                       </div>
                     </div>
@@ -1628,7 +1630,7 @@ export default function AdminModal({
                           : "Ex: Mude a cor da lingerie para vermelho carmim, aumente o contraste das sombras e coloque um fundo de estúdio profissional luxuoso."
                       }
                       rows={4}
-                      className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl p-3 text-stone-200 placeholder-stone-600 focus:outline-none resize-none leading-relaxed"
+                      className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl p-3 text-base sm:text-xs text-stone-200 placeholder-stone-600 focus:outline-none resize-none leading-relaxed"
                     />
                   </div>
 
