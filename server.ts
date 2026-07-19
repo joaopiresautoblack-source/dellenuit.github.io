@@ -2,11 +2,21 @@ import express from "express";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import fs from "fs";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Create uploads folder if not exists
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Serve static uploaded files
+app.use("/uploads", express.static(uploadsDir));
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -49,6 +59,43 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 // API Routes
+app.post("/api/upload-image", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "Nenhuma imagem foi enviada." });
+    }
+
+    // Identify and extract Base64 data and mime-type
+    const match = image.match(/^data:(image\/[a-zA-Z+-]+);base64,(.+)$/);
+    let mimeType = "image/jpeg";
+    let base64Data = image;
+
+    if (match) {
+      mimeType = match[1];
+      base64Data = match[2];
+    } else if (image.startsWith("http")) {
+      // Already a URL, return as-is
+      return res.json({ url: image });
+    } else {
+      // If no match but it's raw base64 or other, assume jpeg
+      base64Data = image;
+    }
+
+    const extension = mimeType.split("/")[1] || "jpg";
+    const filename = `product-${Date.now()}-${Math.floor(Math.random() * 100000)}.${extension}`;
+    const filePath = path.join(uploadsDir, filename);
+
+    await fs.promises.writeFile(filePath, Buffer.from(base64Data, "base64"));
+    
+    const url = `/uploads/${filename}`;
+    return res.json({ url });
+  } catch (err: any) {
+    console.error("Erro ao salvar imagem:", err);
+    return res.status(500).json({ error: "Erro interno no servidor ao salvar imagem." });
+  }
+});
+
 app.post("/api/ai/parse-product", async (req, res) => {
   try {
     const { image } = req.body;

@@ -12,7 +12,12 @@ import {
   Image as ImageIcon,
   AlertTriangle,
   Crop,
-  RotateCcw
+  RotateCcw,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  ArrowLeft,
+  ArrowRight
 } from "lucide-react";
 import { Product } from "../types";
 
@@ -28,8 +33,8 @@ interface AdminModalProps {
   showToast: (msg: string) => void;
 }
 
-// Utility function to resize and compress images to prevent 413 Payload Too Large / QuotaExceededError / tab crashes on iPhone Safari
-const resizeImage = (fileOrBase64: File | string, maxDimension: number = 500): Promise<string> => {
+// Utility function to resize and compress images while preserving high-end visual fidelity
+const resizeImage = (fileOrBase64: File | string, maxDimension: number = 2048): Promise<string> => {
   return new Promise((resolve) => {
     try {
       const img = new Image();
@@ -41,7 +46,7 @@ const resizeImage = (fileOrBase64: File | string, maxDimension: number = 500): P
           let width = img.width;
           let height = img.height;
 
-          // Force downscale for all photos to ensure ultra-small database size (max 500px width/height)
+          // Preserve quality: only scale down if it exceeds the high-res ceiling (2048px)
           if (width > maxDimension || height > maxDimension) {
             if (width > height) {
               height = Math.round((height * maxDimension) / width);
@@ -58,13 +63,14 @@ const resizeImage = (fileOrBase64: File | string, maxDimension: number = 500): P
 
           const ctx = canvas.getContext("2d");
           if (ctx) {
-            // Fill white background for JPEGs to preserve quality and avoid black fill on transparent layers
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0, width, height);
             
-            // Compress heavily using JPEG format (0.50 quality) to ensure super small base64 footprint (typically 12-25KB)
-            const resizedBase64 = canvas.toDataURL("image/jpeg", 0.50);
+            // Output space-efficient, high-quality JPEG with 90% quality rating (0.90)
+            const resizedBase64 = canvas.toDataURL("image/jpeg", 0.90);
             
             if (objectUrl) {
               URL.revokeObjectURL(objectUrl);
@@ -101,58 +107,6 @@ const resizeImage = (fileOrBase64: File | string, maxDimension: number = 500): P
     } catch (err) {
       console.error("Erro no manipulador de redimensionamento:", err);
       resolve(typeof fileOrBase64 === "string" ? fileOrBase64 : "");
-    }
-  });
-};
-
-const cropImageCanvas = (
-  base64Str: string,
-  crop: { x: number; y: number; width: number; height: number }
-): Promise<string> => {
-  return new Promise((resolve) => {
-    try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          
-          // Convert percentage positions to actual pixels
-          const sourceX = (img.width * crop.x) / 100;
-          const sourceY = (img.height * crop.y) / 100;
-          const sourceW = (img.width * crop.width) / 100;
-          const sourceH = (img.height * crop.height) / 100;
-
-          // Avoid division by zero or negative size
-          const targetW = sourceW > 0 ? sourceW : 100;
-          const targetH = sourceH > 0 ? sourceH : 100;
-
-          canvas.width = targetW;
-          canvas.height = targetH;
-
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            // White canvas bg
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(0, 0, targetW, targetH);
-            ctx.drawImage(img, sourceX, sourceY, sourceW, sourceH, 0, 0, targetW, targetH);
-            // Save as space-saving JPEG with 0.60 compression
-            resolve(canvas.toDataURL("image/jpeg", 0.60));
-          } else {
-            resolve(base64Str);
-          }
-        } catch (innerErr) {
-          console.error("Erro interno ao cortar imagem:", innerErr);
-          resolve(base64Str);
-        }
-      };
-      img.onerror = () => {
-        resolve(base64Str);
-      };
-      img.src = base64Str;
-    } catch (err) {
-      console.error("Erro no manipulador de recorte:", err);
-      resolve(base64Str);
     }
   });
 };
@@ -327,12 +281,20 @@ export default function AdminModal({
   // Image Cropping States & Refs
   const [originalUncroppedImage, setOriginalUncroppedImage] = useState<string>("");
   const [isCropperOpen, setIsCropperOpen] = useState<boolean>(false);
-  const [cropBoxState, setCropBoxState] = useState<{ x: number, y: number, width: number, height: number }>({ x: 10, y: 10, width: 80, height: 80 });
-  const [isAutoCropped, setIsAutoCropped] = useState<boolean>(false);
-  const [lockedRatio, setLockedRatio] = useState<"free" | "1:1" | "3:4">("free");
+  const [zoom, setZoom] = useState<number>(1);
+  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState<number>(0);
+  const [baseDimensions, setBaseDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [initialPosition, setInitialPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+
+  // Advanced Gallery & Image Mappings (preserving uncropped original photos for re-cropping)
+  const [originalImages, setOriginalImages] = useState<Record<string, string>>({});
+  const [pendingCropQueue, setPendingCropQueue] = useState<string[]>([]);
+  const [replacingImageIndex, setReplacingImageIndex] = useState<number | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
 
   // Image Enhancement States
   const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
@@ -374,61 +336,19 @@ export default function AdminModal({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    
-    // Bound to [0, 100]
-    const boundedX = Math.max(0, Math.min(100, x));
-    const boundedY = Math.max(0, Math.min(100, y));
-
     setIsDragging(true);
-    setDragStart({ x: boundedX, y: boundedY });
-    setCropBoxState({
-      x: boundedX,
-      y: boundedY,
-      width: 0,
-      height: 0
-    });
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setInitialPosition({ ...position });
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging || !dragStart || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const currentX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const currentY = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-
-    const x = Math.min(dragStart.x, currentX);
-    const y = Math.min(dragStart.y, currentY);
-    let width = Math.abs(currentX - dragStart.x);
-    let height = Math.abs(currentY - dragStart.y);
-
-    if (lockedRatio === "1:1") {
-      const size = Math.max(width, height);
-      width = size;
-      height = size;
-    } else if (lockedRatio === "3:4") {
-      const targetHeight = width * (4 / 3);
-      if (y + targetHeight <= 100) {
-        height = targetHeight;
-      } else {
-        width = (100 - y) * (3 / 4);
-        height = 100 - y;
-      }
-    }
-
-    const finalX = Math.max(0, Math.min(100 - width, x));
-    const finalY = Math.max(0, Math.min(100 - height, y));
-    const finalW = Math.min(100 - finalX, width);
-    const finalH = Math.min(100 - finalY, height);
-
-    setCropBoxState({
-      x: finalX,
-      y: finalY,
-      width: finalW,
-      height: finalH
+    if (!isDragging || !dragStart) return;
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    setPosition({
+      x: initialPosition.x + dx,
+      y: initialPosition.y + dy
     });
   };
 
@@ -436,13 +356,191 @@ export default function AdminModal({
     setIsDragging(false);
     setDragStart(null);
     e.currentTarget.releasePointerCapture(e.pointerId);
+  };
 
-    setCropBoxState(prev => {
-      if (prev.width < 5 || prev.height < 5) {
-        return { x: 10, y: 10, width: 80, height: 80 };
+  // Real-time visual crop preview generation
+  const [previewUrl, setPreviewUrl] = useState<string>("");
+
+  React.useEffect(() => {
+    if (!originalUncroppedImage || !isCropperOpen) return;
+    
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 160;
+      canvas.height = 200; // 4:5 ratio
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = "#1c1917"; // elegant dark slate bg
+        ctx.fillRect(0, 0, 160, 200);
+        
+        ctx.translate(80, 100);
+        const scaleFactor = 160 / 280; // screen mask is 280px wide
+        
+        ctx.translate(position.x * scaleFactor, position.y * scaleFactor);
+        ctx.rotate((rotation * Math.PI) / 180);
+        ctx.scale(zoom * scaleFactor, zoom * scaleFactor);
+        
+        ctx.drawImage(
+          img,
+          -baseDimensions.width / 2,
+          -baseDimensions.height / 2,
+          baseDimensions.width,
+          baseDimensions.height
+        );
+        setPreviewUrl(canvas.toDataURL("image/jpeg", 0.85));
       }
-      return prev;
+    };
+    img.src = originalUncroppedImage;
+  }, [position, zoom, rotation, originalUncroppedImage, baseDimensions, isCropperOpen]);
+
+  // Generates high-fidelity high-resolution crop (target 1600x2000px)
+  const generateHighResCrop = (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          
+          let targetW = 1600;
+          let targetH = 2000;
+          
+          const minDimension = Math.min(img.naturalWidth, img.naturalHeight);
+          if (minDimension < 1600) {
+            targetW = Math.max(400, Math.floor(minDimension));
+            targetH = Math.floor(targetW * 1.25);
+          }
+          
+          canvas.width = targetW;
+          canvas.height = targetH;
+          
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Não foi possível inicializar o canvas 2D."));
+            return;
+          }
+          
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, targetW, targetH);
+          
+          ctx.translate(targetW / 2, targetH / 2);
+          const scaleFactor = targetW / 280;
+          
+          ctx.translate(position.x * scaleFactor, position.y * scaleFactor);
+          ctx.rotate((rotation * Math.PI) / 180);
+          ctx.scale(zoom * scaleFactor, zoom * scaleFactor);
+          
+          ctx.drawImage(
+            img,
+            -baseDimensions.width / 2,
+            -baseDimensions.height / 2,
+            baseDimensions.width,
+            baseDimensions.height
+          );
+          
+          resolve(canvas.toDataURL("image/jpeg", 0.90));
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = () => reject(new Error("Erro ao carregar imagem para renderização."));
+      img.src = originalUncroppedImage;
     });
+  };
+
+  // Upload cropped image base64 to server relative static directory
+  const uploadCroppedImage = async (base64Data: string): Promise<string> => {
+    const response = await fetch("/api/upload-image", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ image: base64Data })
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || "Falha no upload da foto.");
+    }
+    const data = await response.json();
+    return data.url;
+  };
+
+  // Apply visual cropping, render high-res file and save
+  const handleApplyCrop = async () => {
+    setIsUploading(true);
+    try {
+      const croppedBase64 = await generateHighResCrop();
+      const finalUrl = await uploadCroppedImage(croppedBase64);
+      
+      setOriginalImages(prev => ({
+        ...prev,
+        [finalUrl]: originalUncroppedImage
+      }));
+      
+      if (editingImageIndex !== null && editingImageIndex !== -1) {
+        const originalUrl = formImages[editingImageIndex];
+        setFormImages(prev => {
+          const updated = [...prev];
+          updated[editingImageIndex] = finalUrl;
+          return updated;
+        });
+        if (originalUrl === formImage) {
+          setFormImage(finalUrl);
+        }
+      } else {
+        setFormImages(prev => {
+          if (!prev.includes(finalUrl)) {
+            return [...prev, finalUrl];
+          }
+          return prev;
+        });
+        setFormImage(prev => prev || finalUrl);
+      }
+      
+      showToast("✨ Foto processada e salva em alta qualidade!");
+      setIsCropperOpen(false);
+      setEditingImageIndex(null);
+      
+      // Handle remaining items in queue sequentially
+      if (pendingCropQueue.length > 1) {
+        const nextQueue = pendingCropQueue.slice(1);
+        setPendingCropQueue(nextQueue);
+        setOriginalUncroppedImage(nextQueue[0]);
+        setEditingImageIndex(-1);
+        setZoom(1);
+        setPosition({ x: 0, y: 0 });
+        setRotation(0);
+        setIsCropperOpen(true);
+      } else {
+        setPendingCropQueue([]);
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast(`Erro ao processar imagem: ${err.message || err}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleCancelCrop = () => {
+    setIsCropperOpen(false);
+    setEditingImageIndex(null);
+    if (pendingCropQueue.length > 1) {
+      const nextQueue = pendingCropQueue.slice(1);
+      setPendingCropQueue(nextQueue);
+      setOriginalUncroppedImage(nextQueue[0]);
+      setEditingImageIndex(-1);
+      setZoom(1);
+      setPosition({ x: 0, y: 0 });
+      setRotation(0);
+      setIsCropperOpen(true);
+    } else {
+      setPendingCropQueue([]);
+    }
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -550,37 +648,47 @@ export default function AdminModal({
     const files = e.target.files;
     if (files && files.length > 0) {
       const fileList = Array.from(files);
-      showToast(`Processando ${fileList.length} imagem(ns)...`);
+      showToast(`Carregando ${fileList.length} foto(s)...`);
 
-      Promise.all(fileList.map((file: File) => {
-        return resizeImage(file, 500).catch(() => null);
-      })).then((results) => {
-        const validResults = results.filter((res): res is string => typeof res === "string" && !!res);
-        if (validResults.length > 0) {
-          setFormImages((prev) => {
-            const updated = [...prev];
-            validResults.forEach(res => {
-              if (!updated.includes(res)) {
-                updated.push(res);
-              }
-            });
-            return updated;
-          });
+      // Read each file as a high-fidelity original uncropped DataURL
+      const promises = fileList.map((file: File) => {
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      });
 
-          setFormImage((current) => {
-            if (!current) {
-              setOriginalUncroppedImage(validResults[0]);
-              setCropBoxState({ x: 10, y: 10, width: 80, height: 80 });
-              return validResults[0];
-            }
-            return current;
-          });
+      Promise.all(promises).then((dataUrls) => {
+        const validUrls = dataUrls.filter((url): url is string => !!url);
+        if (validUrls.length === 0) return;
 
-          showToast("Imagem(ns) anexada(s) com sucesso!");
+        if (replacingImageIndex !== null) {
+          // Replace mode: trigger cropping panel directly for this specific slot
+          const targetIndex = replacingImageIndex;
+          setReplacingImageIndex(null);
+          setEditingImageIndex(targetIndex);
+          setOriginalUncroppedImage(validUrls[0]);
+          
+          setZoom(1);
+          setPosition({ x: 0, y: 0 });
+          setRotation(0);
+          setIsCropperOpen(true);
+        } else {
+          // Standard additions: Queue them up so the user can crop them one by one
+          setPendingCropQueue(validUrls);
+          setEditingImageIndex(-1); // denotes a new gallery addition
+          setOriginalUncroppedImage(validUrls[0]);
+          
+          setZoom(1);
+          setPosition({ x: 0, y: 0 });
+          setRotation(0);
+          setIsCropperOpen(true);
         }
       }).catch((err) => {
-        console.error("Erro no upload múltiplo:", err);
-        showToast("Erro ao carregar algumas fotos.");
+        console.error("Erro ao ler arquivos de foto:", err);
+        showToast("Falha ao ler os arquivos das imagens.");
       });
     }
   };
@@ -815,8 +923,9 @@ export default function AdminModal({
     if (urls[keyword]) {
       setFormImage(urls[keyword]);
       setOriginalUncroppedImage(urls[keyword]);
-      setIsAutoCropped(false);
-      setCropBoxState({ x: 10, y: 10, width: 80, height: 80 });
+      setZoom(1);
+      setPosition({ x: 0, y: 0 });
+      setRotation(0);
     }
   };
 
@@ -1055,17 +1164,19 @@ export default function AdminModal({
                               </button>
                               
                               {/* Overlay for action buttons */}
-                              <div className="absolute inset-0 bg-stone-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1.5 z-10">
-                                <div className="flex justify-between items-start">
+                              <div className="absolute inset-0 bg-stone-950/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1.5 z-10">
+                                <div className="flex justify-between items-center w-full">
                                   {/* Cover label or mark as cover */}
                                   {!isMain ? (
                                     <button
                                       type="button"
                                       onClick={() => {
                                         setFormImage(imgUrl);
-                                        setOriginalUncroppedImage(imgUrl);
-                                        setIsAutoCropped(false);
-                                        setCropBoxState({ x: 10, y: 10, width: 80, height: 80 });
+                                        const orig = originalImages[imgUrl] || imgUrl;
+                                        setOriginalUncroppedImage(orig);
+                                        setZoom(1);
+                                        setPosition({ x: 0, y: 0 });
+                                        setRotation(0);
                                         showToast("Definida como imagem principal!");
                                       }}
                                       className="px-1.5 py-0.5 rounded-md bg-stone-900 hover:bg-gold-500 hover:text-stone-950 text-[8px] text-gold-300 font-bold transition-all cursor-pointer"
@@ -1077,23 +1188,80 @@ export default function AdminModal({
                                       Capa
                                     </span>
                                   )}
+
+                                  {/* Reorder actions */}
+                                  <div className="flex gap-0.5">
+                                    {index > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const updated = [...formImages];
+                                          const temp = updated[index];
+                                          updated[index] = updated[index - 1];
+                                          updated[index - 1] = temp;
+                                          setFormImages(updated);
+                                          if (isMain) {
+                                            setFormImage(updated[index - 1]);
+                                          }
+                                        }}
+                                        className="p-1 rounded bg-stone-900/90 hover:bg-gold-500 text-stone-400 hover:text-stone-950 text-[8px] transition-all cursor-pointer"
+                                        title="Mover para esquerda"
+                                      >
+                                        <ArrowLeft className="w-2.5 h-2.5" />
+                                      </button>
+                                    )}
+                                    {index < formImages.length - 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const updated = [...formImages];
+                                          const temp = updated[index];
+                                          updated[index] = updated[index + 1];
+                                          updated[index + 1] = temp;
+                                          setFormImages(updated);
+                                          if (isMain) {
+                                            setFormImage(updated[index + 1]);
+                                          }
+                                        }}
+                                        className="p-1 rounded bg-stone-900/90 hover:bg-gold-500 text-stone-400 hover:text-stone-950 text-[8px] transition-all cursor-pointer"
+                                        title="Mover para direita"
+                                      >
+                                        <ArrowRight className="w-2.5 h-2.5" />
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
 
-                                {/* Crop & Enhance buttons at the bottom of the hover overlay */}
+                                {/* Crop, Substitute & Enhance buttons at the bottom of the hover overlay */}
                                 <div className="flex justify-center gap-1 mt-auto">
                                   <button
                                     type="button"
                                     onClick={() => {
                                       setEditingImageIndex(index);
-                                      setOriginalUncroppedImage(imgUrl);
-                                      setCropBoxState({ x: 10, y: 10, width: 80, height: 80 });
-                                      setIsAutoCropped(false);
+                                      const orig = originalImages[imgUrl] || imgUrl;
+                                      setOriginalUncroppedImage(orig);
+                                      setZoom(1);
+                                      setPosition({ x: 0, y: 0 });
+                                      setRotation(0);
                                       setIsCropperOpen(true);
                                     }}
-                                    className="p-1 rounded-md bg-stone-900 hover:bg-gold-500 text-gold-400 hover:text-stone-950 border border-stone-800 transition-all cursor-pointer flex items-center justify-center"
-                                    title="Recortar esta foto individualmente"
+                                    className="p-1 rounded bg-stone-900 hover:bg-gold-500 text-gold-400 hover:text-stone-950 border border-stone-850 transition-all cursor-pointer flex items-center justify-center"
+                                    title="Ajustar ou refazer o recorte"
                                   >
-                                    <Crop className="w-3.5 h-3.5" />
+                                    <Crop className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReplacingImageIndex(index);
+                                      fileInputRef.current?.click();
+                                    }}
+                                    className="p-1 rounded bg-stone-900 hover:bg-gold-500 text-gold-400 hover:text-stone-950 border border-stone-850 transition-all cursor-pointer flex items-center justify-center"
+                                    title="Substituir foto por arquivo local"
+                                  >
+                                    <RefreshCw className="w-3 h-3" />
                                   </button>
                                   <button
                                     type="button"
@@ -1112,10 +1280,10 @@ export default function AdminModal({
                                         setIsProcessingEnhance(false);
                                       }
                                     }}
-                                    className="p-1 rounded-md bg-stone-900 hover:bg-purple-500 text-purple-400 hover:text-stone-950 border border-stone-800 transition-all cursor-pointer flex items-center justify-center"
+                                    className="p-1 rounded bg-stone-900 hover:bg-purple-500 text-purple-400 hover:text-stone-950 border border-stone-850 transition-all cursor-pointer flex items-center justify-center"
                                     title="Melhorar qualidade HD desta foto individualmente"
                                   >
-                                    <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                    <Sparkles className="w-3 h-3 animate-pulse" />
                                   </button>
                                 </div>
                               </div>
@@ -1210,12 +1378,16 @@ export default function AdminModal({
                             <span>Melhorar Nitidez / HD</span>
                           </button>
 
-                          {isAutoCropped && (
+                          {formImage && originalImages[formImage] && (
                             <button
                               type="button"
                               onClick={() => {
-                                setFormImage(originalUncroppedImage);
-                                setIsAutoCropped(false);
+                                const orig = originalImages[formImage];
+                                setFormImage(orig);
+                                setOriginalUncroppedImage(orig);
+                                setZoom(1);
+                                setPosition({ x: 0, y: 0 });
+                                setRotation(0);
                                 showToast("Foto restaurada para a original.");
                               }}
                               className="px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-850 text-stone-400 hover:text-stone-300 border border-stone-800 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
@@ -1792,268 +1964,232 @@ export default function AdminModal({
 
         {/* Manual Cropper Modal */}
         {isCropperOpen && originalUncroppedImage && (
-          <div className="fixed inset-0 z-[100] bg-stone-950/95 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-stone-900 border border-gold-500/20 rounded-3xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]">
+          <div className="fixed inset-0 z-[100] bg-stone-950/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+            <div className="bg-stone-900 border border-gold-500/20 rounded-3xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[95vh] md:max-h-[90vh]">
               
-              {/* Left Column: Interactive Canvas/Preview */}
-              <div className="flex-1 p-6 bg-stone-950 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-stone-850 min-h-[300px] md:min-h-[450px]">
+              {/* Left Column: Interactive Canvas/Preview Area */}
+              <div className="flex-1 p-6 bg-stone-950 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-stone-850 min-h-[380px] md:min-h-[480px]">
                 <div className="mb-4 text-center">
-                  <span className="block text-[10px] text-gold-400 font-bold uppercase tracking-widest mb-1">Área de Recorte Interativa</span>
-                  <p className="text-[10px] text-stone-400">Arraste um retângulo sobre a imagem para recortar livremente</p>
+                  <span className="block text-[10px] text-gold-400 font-bold uppercase tracking-widest mb-1 font-display">Estúdio de Enquadramento 4:5</span>
+                  <p className="text-[10px] text-stone-400 max-w-xs mx-auto leading-relaxed">
+                    Arraste a foto para reposicionar. Use a barra lateral ou os controles para dar zoom e rotacionar.
+                  </p>
                 </div>
 
-                <div 
-                  ref={containerRef}
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  className="relative overflow-hidden rounded-xl border border-stone-800 bg-stone-950 cursor-crosshair inline-block select-none max-w-full max-h-[350px] md:max-h-[420px]"
-                >
-                  <img 
-                    src={originalUncroppedImage} 
-                    alt="Original Uncropped" 
-                    className="max-h-[350px] md:max-h-[420px] w-auto block select-none pointer-events-none"
-                    draggable={false}
-                  />
-                  {/* Visual Translucent Mask with highlight selection */}
-                  <div 
-                    className="absolute border-2 border-gold-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.7)] pointer-events-none transition-all duration-75"
-                    style={{
-                      left: `${cropBoxState.x}%`,
-                      top: `${cropBoxState.y}%`,
-                      width: `${cropBoxState.width}%`,
-                      height: `${cropBoxState.height}%`,
-                    }}
-                  >
-                    {/* Tiny visual indicators on corner */}
-                    <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-gold-300 -translate-x-[1px] -translate-y-[1px]"></div>
-                    <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-gold-300 translate-x-[1px] -translate-y-[1px]"></div>
-                    <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-gold-300 -translate-x-[1px] translate-y-[1px]"></div>
-                    <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-gold-300 translate-x-[1px] translate-y-[1px]"></div>
-                    
-                    {/* Centered label */}
-                    <div className="absolute inset-0 flex items-center justify-center opacity-40">
-                      <Crop className="w-6 h-6 text-gold-300 animate-pulse" />
-                    </div>
+                {/* Viewport container strictly matching 4:5 proportion */}
+                <div className="relative w-[280px] h-[350px] overflow-hidden rounded-2xl border border-gold-500/30 bg-stone-900 shadow-2xl select-none">
+                  {/* Grid Lines for reference */}
+                  <div className="absolute inset-0 border border-gold-500/10 pointer-events-none z-10">
+                    <div className="absolute inset-x-0 top-1/3 border-b border-white/5"></div>
+                    <div className="absolute inset-x-0 top-2/3 border-b border-white/5"></div>
+                    <div className="absolute inset-y-0 left-1/3 border-r border-white/5"></div>
+                    <div className="absolute inset-y-0 left-2/3 border-r border-white/5"></div>
                   </div>
+                  
+                  {/* Centered Target Area Border Highlight */}
+                  <div className="absolute inset-0 border-2 border-gold-500/20 rounded-2xl pointer-events-none z-10"></div>
+
+                  {/* Interactivity Area */}
+                  <div
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    className="absolute inset-0 cursor-grab active:cursor-grabbing flex items-center justify-center"
+                    style={{ touchAction: "none" }}
+                  >
+                    <img
+                      src={originalUncroppedImage}
+                      alt="Original Uncropped"
+                      className="max-w-none pointer-events-none select-none block"
+                      style={{
+                        width: `${baseDimensions.width}px`,
+                        height: `${baseDimensions.height}px`,
+                        transform: `translate(${position.x}px, ${position.y}px) scale(${zoom}) rotate(${rotation}deg)`,
+                        transformOrigin: "center center",
+                        transition: isDragging ? "none" : "transform 0.15s ease-out",
+                      }}
+                      draggable={false}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 px-3 py-1 rounded-full bg-stone-900/60 border border-stone-850/40 text-[9px] uppercase tracking-widest text-stone-400 font-mono">
+                  Dimensões Originais: {baseDimensions.width} x {baseDimensions.height} px
                 </div>
               </div>
 
-              {/* Right Column: Precision Sliders and Controls */}
-              <div className="w-full md:w-[350px] p-6 flex flex-col justify-between overflow-y-auto space-y-6">
-                <div>
-                  <div className="flex justify-between items-start mb-4">
+              {/* Right Column: Precise Adjustment and Live Final Preview */}
+              <div className="w-full md:w-[360px] p-6 flex flex-col justify-between overflow-y-auto max-h-[50vh] md:max-h-none space-y-5">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-start">
                     <div>
                       <h3 className="text-sm font-bold text-stone-100 flex items-center gap-1.5 font-display">
                         <Crop className="w-4 h-4 text-gold-400" />
-                        <span>Ajustar Recorte da Foto</span>
+                        <span>Ajustar Foto</span>
                       </h3>
                       <p className="text-[10px] text-stone-400 mt-0.5 leading-relaxed">
-                        Ajuste as margens de corte ou use os botões rápidos de proporção.
+                        Defina o enquadramento ideal para o seu catálogo bellenuit.
                       </p>
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        setIsCropperOpen(false);
-                        setEditingImageIndex(null);
-                      }}
+                      onClick={handleCancelCrop}
                       className="p-1 rounded-lg bg-stone-950 hover:bg-stone-850 text-stone-400 hover:text-stone-200 transition-colors cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  {/* Preset Aspect Ratios */}
-                  <div className="space-y-2 mb-4">
-                    <span className="block text-[9px] uppercase tracking-wider text-stone-400 font-bold">Proporções</span>
-                    <div className="grid grid-cols-3 gap-1.5">
+                  {/* Real-Time Live Preview section showing cropped outcome */}
+                  <div className="bg-stone-950/60 p-3 rounded-2xl border border-stone-850/50 flex items-center gap-4">
+                    <div className="w-[80px] h-[100px] bg-stone-900 rounded-lg overflow-hidden border border-gold-500/20 relative shadow-inner">
+                      {previewUrl ? (
+                        <img 
+                          src={previewUrl} 
+                          alt="Resultado final" 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center text-[8px] text-stone-600">Calculando...</div>
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <span className="block text-[8px] uppercase tracking-widest text-gold-400 font-bold font-mono">Pré-visualização</span>
+                      <h4 className="text-[11px] font-bold text-stone-300">Resultado Final do Corte</h4>
+                      <p className="text-[9px] text-stone-500 leading-relaxed">
+                        Visualização realista em proporção vertical 4:5 pronta para catálogo.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Zoom Adjustment Container */}
+                  <div className="space-y-2 bg-stone-950/40 p-3 rounded-2xl border border-stone-850/60">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-stone-400 font-medium flex items-center gap-1">
+                        <ZoomIn className="w-3 h-3 text-gold-400/80" />
+                        Ajuste de Zoom
+                      </span>
+                      <span className="text-gold-400 font-mono font-bold">{Math.round(zoom * 100)}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          setLockedRatio("free");
-                        }}
-                        className={`py-1.5 text-[10px] font-bold rounded-lg border transition-all cursor-pointer ${
-                          lockedRatio === "free"
-                            ? "bg-gold-500/10 border-gold-500/30 text-gold-400"
-                            : "bg-stone-950 border-stone-850 text-stone-400 hover:text-stone-300"
-                        }`}
+                        onClick={() => setZoom(prev => Math.max(0.5, Number((prev - 0.1).toFixed(2))))}
+                        className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-stone-200 transition-colors cursor-pointer"
+                        title="Diminuir Zoom"
                       >
-                        Livre
+                        <ZoomOut className="w-3.5 h-3.5" />
                       </button>
+                      <input 
+                        type="range"
+                        min="0.5"
+                        max="5.0"
+                        step="0.05"
+                        value={zoom}
+                        onChange={(e) => setZoom(Number(e.target.value))}
+                        className="flex-1 accent-gold-500 cursor-pointer h-1.5 rounded-lg bg-stone-800"
+                      />
                       <button
                         type="button"
-                        onClick={() => {
-                          setLockedRatio("1:1");
-                          setCropBoxState(prev => {
-                            const size = Math.min(prev.width, 100 - prev.y);
-                            return { ...prev, height: size, width: size };
-                          });
-                        }}
-                        className={`py-1.5 text-[10px] font-bold rounded-lg border transition-all cursor-pointer ${
-                          lockedRatio === "1:1"
-                            ? "bg-gold-500/10 border-gold-500/30 text-gold-400"
-                            : "bg-stone-950 border-stone-850 text-stone-400 hover:text-stone-300"
-                        }`}
+                        onClick={() => setZoom(prev => Math.min(5.0, Number((prev + 0.1).toFixed(2))))}
+                        className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-400 hover:text-stone-200 transition-colors cursor-pointer"
+                        title="Aumentar Zoom"
                       >
-                        1:1 (Quadrado)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLockedRatio("3:4");
-                          setCropBoxState(prev => {
-                            const w = prev.width;
-                            const h = Math.min(100 - prev.y, w * (4 / 3));
-                            const finalW = h * (3 / 4);
-                            return { ...prev, width: finalW, height: h };
-                          });
-                        }}
-                        className={`py-1.5 text-[10px] font-bold rounded-lg border transition-all cursor-pointer ${
-                          lockedRatio === "3:4"
-                            ? "bg-gold-500/10 border-gold-500/30 text-gold-400"
-                            : "bg-stone-950 border-stone-850 text-stone-400 hover:text-stone-300"
-                        }`}
-                      >
-                        3:4 (Retrato)
+                        <ZoomIn className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
 
-                  {/* Precision sliders */}
-                  <div className="space-y-3">
-                    <span className="block text-[9px] uppercase tracking-wider text-stone-400 font-bold">Ajustes Finos</span>
-                    
-                    {/* Slider X */}
-                    <div className="space-y-1 bg-stone-950 p-2.5 rounded-xl border border-stone-850">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-stone-400">Esquerda (X)</span>
-                        <span className="text-gold-400 font-bold">{Math.round(cropBoxState.x)}%</span>
-                      </div>
-                      <input 
-                        type="range"
-                        min="0"
-                        max={100 - cropBoxState.width}
-                        value={cropBoxState.x}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setCropBoxState(prev => ({ ...prev, x: val }));
-                        }}
-                        className="w-full accent-gold-500 cursor-pointer"
-                      />
+                  {/* Rotation Adjustment Container */}
+                  <div className="space-y-2 bg-stone-950/40 p-3 rounded-2xl border border-stone-850/60">
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-stone-400 font-medium flex items-center gap-1">
+                        <RotateCcw className="w-3 h-3 text-gold-400/80" />
+                        Rotação da Imagem
+                      </span>
+                      <span className="text-gold-400 font-mono font-bold">{rotation}°</span>
                     </div>
-
-                    {/* Slider Y */}
-                    <div className="space-y-1 bg-stone-950 p-2.5 rounded-xl border border-stone-850">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-stone-400">Topo (Y)</span>
-                        <span className="text-gold-400 font-bold">{Math.round(cropBoxState.y)}%</span>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRotation(prev => {
+                          const next = prev - 90;
+                          return next < -180 ? next + 360 : next;
+                        })}
+                        className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-[10px] text-stone-400 hover:text-stone-200 transition-colors font-bold cursor-pointer flex items-center justify-center gap-1 w-12"
+                        title="Girar -90°"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        -90°
+                      </button>
                       <input 
                         type="range"
-                        min="0"
-                        max={100 - cropBoxState.height}
-                        value={cropBoxState.y}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setCropBoxState(prev => ({ ...prev, y: val }));
-                        }}
-                        className="w-full accent-gold-500 cursor-pointer"
+                        min="-180"
+                        max="180"
+                        step="1"
+                        value={rotation}
+                        onChange={(e) => setRotation(Number(e.target.value))}
+                        className="flex-1 accent-gold-500 cursor-pointer h-1.5 rounded-lg bg-stone-800"
                       />
-                    </div>
-
-                    {/* Slider Width */}
-                    <div className="space-y-1 bg-stone-950 p-2.5 rounded-xl border border-stone-850">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-stone-400">Largura</span>
-                        <span className="text-gold-400 font-bold">{Math.round(cropBoxState.width)}%</span>
-                      </div>
-                      <input 
-                        type="range"
-                        min="10"
-                        max={100 - cropBoxState.x}
-                        value={cropBoxState.width}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setCropBoxState(prev => {
-                            let h = prev.height;
-                            if (lockedRatio === "1:1") {
-                              h = Math.min(100 - prev.y, val);
-                            } else if (lockedRatio === "3:4") {
-                              h = Math.min(100 - prev.y, val * (4 / 3));
-                            }
-                            return { ...prev, width: val, height: h };
-                          });
-                        }}
-                        className="w-full accent-gold-500 cursor-pointer"
-                      />
-                    </div>
-
-                    {/* Slider Height */}
-                    <div className="space-y-1 bg-stone-950 p-2.5 rounded-xl border border-stone-850">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-stone-400">Altura</span>
-                        <span className="text-gold-400 font-bold">{Math.round(cropBoxState.height)}%</span>
-                      </div>
-                      <input 
-                        type="range"
-                        min="10"
-                        max={100 - cropBoxState.y}
-                        value={cropBoxState.height}
-                        disabled={lockedRatio !== "free"}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setCropBoxState(prev => ({ ...prev, height: val }));
-                        }}
-                        className={`w-full accent-gold-500 cursor-pointer ${lockedRatio !== "free" ? "opacity-55" : ""}`}
-                      />
+                      <button
+                        type="button"
+                        onClick={() => setRotation(prev => {
+                          const next = prev + 90;
+                          return next > 180 ? next - 360 : next;
+                        })}
+                        className="p-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-[10px] text-stone-400 hover:text-stone-200 transition-colors font-bold cursor-pointer flex items-center justify-center gap-1 w-12"
+                        title="Girar +90°"
+                      >
+                        <RotateCw className="w-3 h-3" />
+                        +90°
+                      </button>
                     </div>
                   </div>
+
+                  {/* Redefinir Ajustes Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setZoom(1);
+                      setPosition({ x: 0, y: 0 });
+                      setRotation(0);
+                      showToast("Ajustes redefinidos para os padrões!");
+                    }}
+                    className="w-full bg-stone-950/60 hover:bg-stone-900 border border-stone-850 hover:border-stone-800 text-stone-400 hover:text-stone-200 text-[10px] font-extrabold uppercase tracking-widest py-2 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Redefinir Ajustes</span>
+                  </button>
                 </div>
 
+                {/* Footer Buttons: Apply & Cancel */}
                 <div className="space-y-2 pt-4 border-t border-stone-850">
                   <button
                     type="button"
-                    onClick={async () => {
-                      try {
-                        const croppedBase64 = await cropImageCanvas(originalUncroppedImage, cropBoxState);
-                        if (editingImageIndex !== null && editingImageIndex !== -1) {
-                          const originalUrl = formImages[editingImageIndex];
-                          setFormImages(prev => {
-                            const updated = [...prev];
-                            updated[editingImageIndex] = croppedBase64;
-                            return updated;
-                          });
-                          if (originalUrl === formImage) {
-                            setFormImage(croppedBase64);
-                          }
-                        } else {
-                          setFormImage(croppedBase64);
-                        }
-                        setIsAutoCropped(true);
-                        setIsCropperOpen(false);
-                        setEditingImageIndex(null);
-                        showToast("✨ Foto recortada com sucesso!");
-                      } catch (err) {
-                        showToast("Não foi possível realizar o corte. Tente novamente.");
-                      }
-                    }}
-                    className="w-full bg-gold-500 hover:bg-gold-400 text-burgundy-950 font-extrabold uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all cursor-pointer text-center flex items-center justify-center space-x-1.5 shadow-lg"
+                    disabled={isUploading}
+                    onClick={handleApplyCrop}
+                    className="w-full bg-gold-500 hover:bg-gold-400 disabled:bg-stone-800 disabled:text-stone-600 text-burgundy-950 font-extrabold uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all cursor-pointer text-center flex items-center justify-center space-x-2 shadow-lg"
                   >
-                    <Crop className="w-3.5 h-3.5" />
-                    <span>Aplicar Novo Recorte</span>
+                    {isUploading ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Processando imagem...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Crop className="w-3.5 h-3.5" />
+                        <span>Aplicar imagem</span>
+                      </>
+                    )}
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => {
-                      setCropBoxState({ x: 0, y: 0, width: 100, height: 100 });
-                      setLockedRatio("free");
-                      showToast("Recorte estendido para a imagem inteira!");
-                    }}
-                    className="w-full bg-stone-950 hover:bg-stone-900 border border-stone-800 text-stone-300 hover:text-stone-100 font-bold text-[10px] py-2 rounded-xl transition-all cursor-pointer text-center"
+                    disabled={isUploading}
+                    onClick={handleCancelCrop}
+                    className="w-full bg-stone-950 hover:bg-stone-900 border border-stone-850 text-stone-400 hover:text-stone-100 font-bold text-[10px] py-2.5 rounded-xl transition-all cursor-pointer text-center"
                   >
-                    Limpar / Selecionar Tudo
+                    Cancelar
                   </button>
                 </div>
               </div>
