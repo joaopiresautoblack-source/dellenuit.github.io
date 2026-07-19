@@ -185,6 +185,9 @@ export default function AdminModal({
   const [replacingImageIndex, setReplacingImageIndex] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isDecodingImage, setIsDecodingImage] = useState<boolean>(false);
+  const [isImageProcessing, setIsImageProcessing] = useState<boolean>(false);
+  const [isSavingProduct, setIsSavingProduct] = useState<boolean>(false);
+  const [cadastroStatus, setCadastroStatus] = useState<string>("");
 
   // Image Cropping State Tracking
   const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
@@ -317,21 +320,53 @@ export default function AdminModal({
     });
   };
 
-  // Upload cropped image base64 to server relative static directory
+  // Upload cropped image base64 to Cloudinary using unsigned preset 'bellenuit_produtos'
   const uploadCroppedImage = async (base64Data: string): Promise<string> => {
-    const response = await fetch("/api/upload-image", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ image: base64Data })
-    });
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || "Falha no upload da foto.");
+    if (!base64Data) return "";
+    
+    // If it's already a remote URL, return it as-is
+    if (base64Data.startsWith("http") && !base64Data.startsWith("http://blob") && !base64Data.startsWith("https://blob")) {
+      return base64Data;
     }
-    const data = await response.json();
-    return data.url;
+
+    const formData = new FormData();
+
+    if (base64Data.startsWith("blob:")) {
+      try {
+        const response = await fetch(base64Data);
+        const blob = await response.blob();
+        formData.append("file", blob);
+      } catch (err: any) {
+        throw new Error(`Falha ao ler arquivo local temporário (blob): ${err.message}`);
+      }
+    } else {
+      formData.append("file", base64Data);
+    }
+
+    formData.append("upload_preset", "bellenuit_produtos");
+
+    const response = await fetch(
+      "https://api.cloudinary.com/v1_1/a9dmb54t/image/upload",
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(
+        errorData?.error?.message || "Falha no upload da imagem para o Cloudinary"
+      );
+    }
+
+    const result = await response.json();
+
+    if (!result.secure_url) {
+      throw new Error("Cloudinary não retornou URL da imagem");
+    }
+
+    return result.secure_url;
   };
 
   // Helper to load, validate, and decode an image before opening the crop editor
@@ -351,6 +386,7 @@ export default function AdminModal({
     }
 
     setIsDecodingImage(true);
+    setIsImageProcessing(true);
     showToast("Carregando imagem...");
 
     try {
@@ -416,6 +452,7 @@ export default function AdminModal({
     } catch (err) {
       console.error("Erro na decodificação da imagem:", err);
       showToast("Não foi possível carregar esta imagem. Tente outra foto ou converta para JPEG/PNG.");
+      setIsImageProcessing(false);
     } finally {
       setIsDecodingImage(false);
     }
@@ -424,6 +461,7 @@ export default function AdminModal({
   // Apply visual cropping, render high-res file and save
   const handleApplyCrop = async () => {
     setIsUploading(true);
+    setIsImageProcessing(true);
     try {
       const croppedBase64 = await generateHighResCrop();
       
@@ -490,6 +528,7 @@ export default function AdminModal({
       showToast(err.message || "Não foi possível processar a imagem.");
     } finally {
       setIsUploading(false);
+      setIsImageProcessing(false);
     }
   };
 
@@ -497,6 +536,7 @@ export default function AdminModal({
     setIsCropperOpen(false);
     setEditingImageType(null);
     setEditingImageIndex(null);
+    setIsImageProcessing(false);
     if (pendingCropQueue.length > 1) {
       const nextQueue = pendingCropQueue.slice(1);
       setPendingCropQueue(nextQueue);
@@ -795,66 +835,109 @@ export default function AdminModal({
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // ETAPA 1 - BOTÃO CADASTRAR FOI ACIONADO
+    console.log("ETAPA 1 - BOTÃO CADASTRAR FOI ACIONADO");
+    setCadastroStatus("1/6 Botão acionado (Diagnóstico: botão acionado)");
+
     try {
-      console.log("AUTH READY:", authReady);
-      console.log("CURRENT USER:", auth.currentUser?.uid);
-      console.log("INICIANDO CADASTRO");
+      setSaveLoading(true);
+      setIsSavingProduct(true);
+
+      // ETAPA 2 - VALIDANDO FORMULÁRIO
+      console.log("ETAPA 2 - VALIDANDO FORMULÁRIO");
+      setCadastroStatus("2/6 Validando formulário");
+
+      if (!formName) {
+        throw new Error("Nome do produto é obrigatório");
+      }
+      if (!formPrice) {
+        throw new Error("Preço do produto é obrigatório");
+      }
+
+      // ETAPA 3 - VERIFICANDO AUTENTICAÇÃO
+      console.log("ETAPA 3 - VERIFICANDO AUTENTICAÇÃO");
+      setCadastroStatus("3/6 Verificando autenticação");
 
       if (!authReady) {
-        throw new Error("Aguardando inicialização do Firebase Auth...");
+        throw new Error("ERRO: Firebase Authentication não foi inicializado.");
       }
 
       const user = auth.currentUser;
+      console.log("ETAPA 3 - USER:", user?.uid);
+      
       if (!user) {
-        throw new Error("Sessão do administrador não encontrada.");
+        throw new Error("ERRO: Firebase Authentication não encontrou sessão ativa.");
       }
       if (user.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
-        throw new Error("Usuário sem permissão administrativa.");
+        throw new Error("ERRO: UID sem permissão administrativa.");
       }
 
-      if (!formName || !formPrice) {
-        throw new Error("Preencha o nome e preço do produto.");
-      }
+      // Re-validate auth token exactly before database write to avoid stales
+      await user.getIdToken(true);
 
-      setSaveLoading(true);
-      showToast("Processando imagens e salvando produto...");
-
-      // Upload any newly cropped/added local base64/blob images first
-      let uploadedMainImage = formImage;
+      // Count how many images need uploading
+      const imagesToUpload: { type: "cover" | "gallery"; index: number; value: string }[] = [];
+      
       if (formImage && (formImage.startsWith("data:") || formImage.startsWith("blob:"))) {
-        uploadedMainImage = await uploadCroppedImage(formImage);
+        imagesToUpload.push({ type: "cover", index: -1, value: formImage });
       }
-
-      const uploadedFormImages: string[] = [];
-      for (const img of formImages) {
+      
+      formImages.forEach((img, idx) => {
         if (img && (img.startsWith("data:") || img.startsWith("blob:"))) {
-          const uploadedUrl = await uploadCroppedImage(img);
-          uploadedFormImages.push(uploadedUrl);
-        } else {
-          uploadedFormImages.push(img);
+          imagesToUpload.push({ type: "gallery", index: idx, value: img });
+        }
+      });
+
+      const totalUploads = imagesToUpload.length;
+      let uploadedMainImage = formImage;
+      const uploadedFormImages = [...formImages];
+
+      // Sequential uploads so we can show exact progress
+      for (let i = 0; i < imagesToUpload.length; i++) {
+        const item = imagesToUpload[i];
+        const statusText = `Enviando imagem ${i + 1} de ${totalUploads}...`;
+        console.log(statusText);
+        setCadastroStatus(statusText);
+        showToast(statusText);
+        
+        try {
+          const secureUrl = await uploadCroppedImage(item.value);
+          if (item.type === "cover") {
+            uploadedMainImage = secureUrl;
+          } else {
+            uploadedFormImages[item.index] = secureUrl;
+          }
+        } catch (uploadErr: any) {
+          console.error("Erro Cloudinary:", uploadErr);
+          throw new Error(`Falha no upload da imagem ${i + 1} de ${totalUploads}: ${uploadErr.message || uploadErr}`);
         }
       }
 
-      const finalImages = uploadedFormImages.length > 0 ? uploadedFormImages : (uploadedMainImage ? [uploadedMainImage] : []);
-      const mainImage = uploadedMainImage || finalImages[0] || "https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=80";
+      const mainImage = uploadedMainImage || (uploadedFormImages[0] || "");
+      const finalImages = uploadedFormImages;
 
+      // ETAPA 4 - SALVANDO NO FIRESTORE
+      console.log("ETAPA 4 - SALVANDO:", { mainImage, finalImages });
+      setCadastroStatus("4/6 Enviando ao Firestore (Salvando produto...)");
+
+      // 8. Fazer um cadastro mínimo direto no Firestore
       const productData = {
         name: formName,
-        category: formCategory,
         price: parseFloat(formPrice) || 0,
-        description: formDescription,
+        description: formDescription || "",
         image: mainImage,
-        images: finalImages.length > 0 ? finalImages : [mainImage],
+        images: finalImages,
+        sizes: formSizes ? formSizes.split(",").map(s => s.trim()).filter(Boolean) : [],
+        colors: formColors ? formColors.split(",").map(c => c.trim()).filter(Boolean) : [],
+        category: formCategory,
         rating: parseFloat(formRating) || 5.0,
         reviewsCount: parseInt(formReviewsCount, 10) || 1,
-        sizes: formSizes.split(",").map(s => s.trim()).filter(Boolean),
-        colors: formColors.split(",").map(c => c.trim()).filter(Boolean),
-        details: formDetails.split(",").map(d => d.trim()).filter(Boolean),
-        tag: formTag.trim() || undefined,
+        details: formDetails ? formDetails.split(",").map(d => d.trim()).filter(Boolean) : [],
+        tag: formTag.trim() || "",
         createdAt: serverTimestamp()
       };
 
-      // Explicit validation check: reject if there is any data:, blob:, File, or Blob
+      // Explicit validation check: reject if there is any data:, blob:, File, or Blob ONLY IF they are not empty
       const checkInvalidUrl = (url: any) => {
         if (!url) return false;
         if (typeof url !== "string") return true;
@@ -865,24 +948,14 @@ export default function AdminModal({
         return false;
       };
 
-      if (checkInvalidUrl(productData.image)) {
-        throw { code: "VALIDATION_ERROR", message: "A imagem principal não é uma URL permanente válida. Formato inválido ou não carregou corretamente." };
+      if (mainImage && checkInvalidUrl(mainImage)) {
+        throw new Error("A imagem principal possui formato local temporário inválido (data:/blob:).");
       }
-      for (let idx = 0; idx < productData.images.length; idx++) {
-        if (checkInvalidUrl(productData.images[idx])) {
-          throw { code: "VALIDATION_ERROR", message: `A imagem da galeria no índice ${idx} não é uma URL permanente válida. Formato inválido ou não carregou corretamente.` };
+      for (let idx = 0; idx < finalImages.length; idx++) {
+        if (finalImages[idx] && checkInvalidUrl(finalImages[idx])) {
+          throw new Error(`A imagem da galeria no índice ${idx} possui formato local temporário inválido.`);
         }
       }
-
-      // 2. Validar o administrador no momento exato do cadastro (antes de setDoc)
-      const userRefreshed = auth.currentUser;
-      if (!userRefreshed) {
-        throw new Error("Sessão do administrador não encontrada.");
-      }
-      if (userRefreshed.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
-        throw new Error("Usuário sem permissão administrativa.");
-      }
-      await userRefreshed.getIdToken(true);
 
       let productRef;
       if (isEditing && editingId) {
@@ -891,28 +964,36 @@ export default function AdminModal({
           ...productData,
           id: editingId
         });
-        showToast("✨ Produto atualizado com sucesso no Firestore!");
       } else {
         productRef = doc(collection(db, "produtos"));
         await setDoc(productRef, {
           ...productData,
           id: productRef.id
         });
-        showToast("✨ Produto cadastrado com sucesso no Firestore!");
       }
 
-      console.log("PRODUTO SALVO");
-      resetForm();
-    } catch (error: any) {
-      console.error("ERRO CADASTRO:", error);
-      console.error("CODE:", error?.code);
-      console.error("MESSAGE:", error?.message);
+      // ETAPA 5 - FIRESTORE CONFIRMOU GRAVAÇÃO
+      console.log("ETAPA 5 - FIRESTORE CONFIRMOU:", productRef.id);
+      setCadastroStatus("5/6 Firestore confirmou gravação (Salvando produto...)");
 
-      showToast(
-        `${error?.code || "erro"}: ${error?.message || "Falha desconhecida"}`
-      );
+      // 9. SOMENTE APÓS setDoc concluir
+      showToast(isEditing ? "✨ Produto atualizado com sucesso!" : "✨ Produto cadastrado com sucesso!");
+      resetForm();
+
+      // ETAPA 6 - CADASTRO CONCLUÍDO
+      console.log("ETAPA 6 - CADASTRO CONCLUÍDO");
+      setCadastroStatus("6/6 Cadastro concluído (Produto cadastrado com sucesso.)");
+
+    } catch (error: any) {
+      // 10. Mostrar erro REAL na tela do celular
+      console.error("ERRO REAL:", error);
+      const errorCode = error?.code || "sem código";
+      const errorMessage = error?.message || String(error);
+      setCadastroStatus(`ERRO: ${errorCode} - ${errorMessage}`);
+      showToast(`❌ Erro: ${errorMessage}`);
     } finally {
       setSaveLoading(false);
+      setIsSavingProduct(false);
     }
   };
 
@@ -1469,6 +1550,12 @@ export default function AdminModal({
                         </button>
                       )}
                     </div>
+
+                    {cadastroStatus && (
+                      <div id="cadastro-status-line" className="mt-4 p-3 bg-stone-900 border border-gold-500/20 rounded-xl text-[11px] font-mono text-gold-300">
+                        <span className="font-bold text-gold-400">Status do cadastro:</span> {cadastroStatus}
+                      </div>
+                    )}
                   </form>
                 </div>
 
