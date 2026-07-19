@@ -62,6 +62,7 @@ export default function App() {
       snapshot.forEach((docSnap) => {
         productsList.push({ id: docSnap.id, ...docSnap.data() } as Product);
       });
+      console.log("4 - Snapshot recebeu produtos", productsList);
       setProducts(productsList);
     }, (error) => {
       console.error("Erro ao escutar Firestore 'produtos':", error);

@@ -24,7 +24,7 @@ import {
 import { Product } from "../types";
 
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
-import { doc, setDoc, deleteDoc } from "firebase/firestore";
+import { doc, setDoc, deleteDoc, collection, serverTimestamp } from "firebase/firestore";
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 
 interface AdminModalProps {
@@ -971,8 +971,10 @@ export default function AdminModal({
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth.currentUser) {
-      showToast("Acesso negado: Você precisa estar autenticado.");
+    const isLocal = sessionStorage.getItem("bellenuit_local_auth") === "true";
+    const currentUid = auth.currentUser?.uid;
+    if (!isLocal && (!auth.currentUser || currentUid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92")) {
+      showToast("Acesso negado: Apenas o administrador autorizado (UID: GfUnnd6oYcZVdgUBc9gFVXiO4t92) pode cadastrar produtos.");
       return;
     }
     if (!formName || !formPrice) {
@@ -980,11 +982,11 @@ export default function AdminModal({
       return;
     }
 
+    console.log("1 - Iniciando cadastro");
     setSaveLoading(true);
 
     try {
       showToast("Processando imagens e salvando produto...");
-      const productId = editingId || `prod-${Date.now()}`;
 
       // Upload any newly cropped/added local base64/blob images first
       let uploadedMainImage = formImage;
@@ -1005,8 +1007,7 @@ export default function AdminModal({
       const finalImages = uploadedFormImages.length > 0 ? uploadedFormImages : (uploadedMainImage ? [uploadedMainImage] : []);
       const mainImage = uploadedMainImage || finalImages[0] || "https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=80";
 
-      const newProduct: Product = {
-        id: productId,
+      const productData = {
         name: formName,
         category: formCategory,
         price: parseFloat(formPrice) || 0,
@@ -1018,19 +1019,35 @@ export default function AdminModal({
         sizes: formSizes.split(",").map(s => s.trim()).filter(Boolean),
         colors: formColors.split(",").map(c => c.trim()).filter(Boolean),
         details: formDetails.split(",").map(d => d.trim()).filter(Boolean),
-        tag: formTag.trim() || undefined
+        tag: formTag.trim() || undefined,
+        createdAt: serverTimestamp()
       };
 
+      console.log("2 - Dados enviados:", productData);
+
+      let productRef;
       if (isEditing && editingId) {
-        await setDoc(doc(db, "produtos", editingId), newProduct);
+        productRef = doc(db, "produtos", editingId);
+        await setDoc(productRef, {
+          ...productData,
+          id: editingId
+        });
+        console.log("3 - Produto salvo no Firestore:", editingId);
         showToast("Produto atualizado com sucesso no Firestore!");
       } else {
-        await setDoc(doc(db, "produtos", newProduct.id), newProduct);
+        productRef = doc(collection(db, "produtos"));
+        await setDoc(productRef, {
+          ...productData,
+          id: productRef.id
+        });
+        console.log("3 - Produto salvo no Firestore:", productRef.id);
         showToast("Produto cadastrado com sucesso no Firestore!");
       }
+
+      console.log("5 - Cadastro concluído");
       resetForm();
     } catch (err: any) {
-      console.error("Erro ao salvar produto no Firestore:", err);
+      console.error("Erro ao cadastrar produto:", err);
       showToast(`Erro ao salvar produto: ${err.message || err.code || "Verifique as fotos"}`);
       try {
         handleFirestoreError(err, isEditing ? OperationType.UPDATE : OperationType.CREATE, `produtos/${isEditing ? editingId : "new"}`);
