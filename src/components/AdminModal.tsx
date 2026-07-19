@@ -1038,58 +1038,6 @@ export default function AdminModal({
                     <span>{isEditing ? "Editar Produto" : "Cadastrar Novo Produto"}</span>
                   </h3>
 
-                  {/* AI Scan Ad Autofill Option */}
-                  {!isEditing && (
-                    <div className="bg-stone-950/60 p-4 rounded-2xl border border-gold-500/15 space-y-3 shadow-lg">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 rounded-full bg-gold-500/10 border border-gold-400/20 flex items-center justify-center text-gold-300">
-                          <Sparkles className={`w-4 h-4 text-gold-400 ${scanLoading ? "animate-spin" : "animate-pulse"}`} />
-                        </div>
-                        <div>
-                          <h4 className="text-[11px] font-bold text-stone-200 uppercase tracking-wide">Preencher com IA (Foto do Anúncio)</h4>
-                          <p className="text-[9px] text-stone-400">Anexe a foto do anúncio/oferta com o preço para autopreencher</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="file"
-                          id="ai-ad-uploader"
-                          accept="image/*"
-                          onChange={handleAiAdScan}
-                          className="hidden"
-                          disabled={scanLoading}
-                        />
-                        <label
-                          htmlFor={scanLoading ? undefined : "ai-ad-uploader"}
-                          className={`w-full py-3 px-4 rounded-xl border border-stone-850 hover:border-gold-500/30 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                            scanLoading 
-                              ? "bg-stone-900/50 text-stone-500 border-stone-900 pointer-events-none" 
-                              : "bg-stone-950 hover:bg-stone-900 text-gold-400 hover:text-gold-300"
-                          }`}
-                        >
-                          {scanLoading ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-gold-400" />
-                              <span className="text-[11px] font-bold text-gold-400 animate-pulse">{scanStep}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="w-3.5 h-3.5 text-gold-400" />
-                              <span>Carregar Foto do Anúncio / Oferta</span>
-                            </>
-                          )}
-                        </label>
-                      </div>
-
-                      {scanError && (
-                        <p className="text-[10px] text-red-400 font-medium bg-red-950/20 p-2 rounded-lg border border-red-900/30">
-                          {scanError}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
                   <form onSubmit={handleSaveProduct} className="space-y-3 text-xs">
                     {/* Nome */}
                     <div className="space-y-1">
@@ -1448,27 +1396,15 @@ export default function AdminModal({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="block text-stone-400 font-medium">Tag Especial (Ex: Luxo, Novidade)</label>
-                        <input 
-                          type="text"
-                          placeholder="Sem tag"
-                          value={formTag}
-                          onChange={(e) => setFormTag(e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none focus:border-gold-500/50"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="block text-stone-400 font-medium">Destaques (separados por vírgula)</label>
-                        <input 
-                          type="text"
-                          placeholder="Exclusivo, Toque Macio"
-                          value={formDetails}
-                          onChange={(e) => setFormDetails(e.target.value)}
-                          className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none focus:border-gold-500/50"
-                        />
-                      </div>
+                    <div className="space-y-1">
+                      <label className="block text-stone-400 font-medium">Destaques (separados por vírgula)</label>
+                      <input 
+                        type="text"
+                        placeholder="Exclusivo, Toque Macio"
+                        value={formDetails}
+                        onChange={(e) => setFormDetails(e.target.value)}
+                        className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none focus:border-gold-500/50"
+                      />
                     </div>
 
                     {/* Form Buttons */}

@@ -230,11 +230,7 @@ export default function ProductDetailsModal({
               )}
             </div>
 
-            {product.tag && (
-              <span className="absolute top-4 left-4 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-amber-500 to-rose-600 text-white shadow-lg z-10 pointer-events-none">
-                {product.tag}
-              </span>
-            )}
+
           </div>
 
           {/* Right Column: Interactive Details Section */}

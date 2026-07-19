@@ -27,12 +27,7 @@ export default function ProductCard({
       id={`product-card-${product.id}`}
       className="group relative bg-stone-900/40 border border-stone-800/80 hover:border-gold-400/30 rounded-2xl overflow-hidden transition-all duration-300 flex flex-col h-full shadow-lg"
     >
-      {/* Product Tag/Badge */}
-      {product.tag && (
-        <span className="absolute top-3 left-3 z-10 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-gradient-to-r from-gold-500 to-burgundy-600 text-white shadow-md">
-          {product.tag}
-        </span>
-      )}
+
 
       {/* Favorite Button */}
       {onAddToFavorites && (
