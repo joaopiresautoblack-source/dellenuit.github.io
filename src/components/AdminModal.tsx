@@ -15,8 +15,8 @@ import {
   RotateCcw
 } from "lucide-react";
 import { Product } from "../types";
-import { EXAMPLE_PRODUCTS } from "../data";
-import { db, auth } from "../firebase";
+
+import { db, auth, handleFirestoreError, OperationType } from "../firebase";
 import { doc, setDoc, deleteDoc } from "firebase/firestore";
 import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 
@@ -28,17 +28,20 @@ interface AdminModalProps {
   showToast: (msg: string) => void;
 }
 
-// Utility function to resize and compress base64 images to prevent 413 Payload Too Large / QuotaExceededError / HTML response errors
-const resizeImage = (base64Str: string, maxDimension: number = 800): Promise<string> => {
+// Utility function to resize and compress images to prevent 413 Payload Too Large / QuotaExceededError / tab crashes on iPhone Safari
+const resizeImage = (fileOrBase64: File | string, maxDimension: number = 500): Promise<string> => {
   return new Promise((resolve) => {
     try {
       const img = new Image();
+      let objectUrl = "";
+
       img.crossOrigin = "anonymous";
       img.onload = () => {
         try {
           let width = img.width;
           let height = img.height;
 
+          // Force downscale for all photos to ensure ultra-small database size (max 500px width/height)
           if (width > maxDimension || height > maxDimension) {
             if (width > height) {
               height = Math.round((height * maxDimension) / width);
@@ -60,24 +63,44 @@ const resizeImage = (base64Str: string, maxDimension: number = 800): Promise<str
             ctx.fillRect(0, 0, width, height);
             ctx.drawImage(img, 0, 0, width, height);
             
-            // Compress heavily using JPEG format (0.75 quality) to ensure super small base64 footprint
-            const resizedBase64 = canvas.toDataURL("image/jpeg", 0.75);
+            // Compress heavily using JPEG format (0.50 quality) to ensure super small base64 footprint (typically 12-25KB)
+            const resizedBase64 = canvas.toDataURL("image/jpeg", 0.50);
+            
+            if (objectUrl) {
+              URL.revokeObjectURL(objectUrl);
+            }
             resolve(resizedBase64);
           } else {
-            resolve(base64Str);
+            if (objectUrl) {
+              URL.revokeObjectURL(objectUrl);
+            }
+            resolve(typeof fileOrBase64 === "string" ? fileOrBase64 : "");
           }
         } catch (innerErr) {
           console.error("Erro interno no redimensionamento de imagem:", innerErr);
-          resolve(base64Str);
+          if (objectUrl) {
+            URL.revokeObjectURL(objectUrl);
+          }
+          resolve(typeof fileOrBase64 === "string" ? fileOrBase64 : "");
         }
       };
+      
       img.onerror = () => {
-        resolve(base64Str);
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+        resolve(typeof fileOrBase64 === "string" ? fileOrBase64 : "");
       };
-      img.src = base64Str;
+
+      if (fileOrBase64 instanceof File) {
+        objectUrl = URL.createObjectURL(fileOrBase64);
+        img.src = objectUrl;
+      } else {
+        img.src = fileOrBase64;
+      }
     } catch (err) {
       console.error("Erro no manipulador de redimensionamento:", err);
-      resolve(base64Str);
+      resolve(typeof fileOrBase64 === "string" ? fileOrBase64 : "");
     }
   });
 };
@@ -113,8 +136,8 @@ const cropImageCanvas = (
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(0, 0, targetW, targetH);
             ctx.drawImage(img, sourceX, sourceY, sourceW, sourceH, 0, 0, targetW, targetH);
-            // Save as space-saving JPEG
-            resolve(canvas.toDataURL("image/jpeg", 0.75));
+            // Save as space-saving JPEG with 0.60 compression
+            resolve(canvas.toDataURL("image/jpeg", 0.60));
           } else {
             resolve(base64Str);
           }
@@ -293,10 +316,11 @@ export default function AdminModal({
   const [formDescription, setFormDescription] = useState<string>("");
   const [formImage, setFormImage] = useState<string>("");
   const [formImages, setFormImages] = useState<string[]>([]);
-  const [formSizes, setFormSizes] = useState<string>("P, M, G, GG");
-  const [formColors, setFormColors] = useState<string>("Preto Absoluto, Vermelho Sensual");
-  const [formDetails, setFormDetails] = useState<string>("Material importado de alta qualidade, Toque macio e confortável");
+  const [formSizes, setFormSizes] = useState<string>("");
+  const [formColors, setFormColors] = useState<string>("");
+  const [formDetails, setFormDetails] = useState<string>("");
   const [formTag, setFormTag] = useState<string>("");
+  const [saveLoading, setSaveLoading] = useState<boolean>(false);
 
   // Image Cropping States & Refs
   const [originalUncroppedImage, setOriginalUncroppedImage] = useState<string>("");
@@ -440,144 +464,7 @@ export default function AdminModal({
     return () => unsubscribe();
   }, []);
 
-  // AI Ad Scan States
-  const [scanLoading, setScanLoading] = useState<boolean>(false);
-  const [scanError, setScanError] = useState<string>("");
-  const [scanStep, setScanStep] = useState<string>("Analisando imagem...");
 
-  React.useEffect(() => {
-    if (!scanLoading) {
-      setScanStep("IA Analisando Anúncio...");
-      return;
-    }
-    const steps = [
-      "Compactando imagem para envio ultrarrápido...",
-      "Processando imagem com o Gemini 3.5 Flash...",
-      "Identificando a peça e lendo textos do anúncio...",
-      "Extraindo preço, categoria e marca de luxo...",
-      "Gerando descrição e detalhes requintados...",
-      "Calculando recorte inteligente focado na peça...",
-      "Organizando as cores e tamanhos sugeridos..."
-    ];
-    let currentIdx = 0;
-    setScanStep(steps[0]);
-    const timer = setInterval(() => {
-      currentIdx = (currentIdx + 1) % steps.length;
-      setScanStep(steps[currentIdx]);
-    }, 1800);
-    return () => clearInterval(timer);
-  }, [scanLoading]);
-
-  const handleAiAdScan = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 50 * 1024 * 1024) {
-        showToast("Por favor, selecione uma imagem de anúncio menor que 50MB.");
-        return;
-      }
-      setScanLoading(true);
-      setScanError("");
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        if (typeof reader.result === "string") {
-          try {
-            // Resize to 720px to make uploading 2x faster while keeping perfect OCR and vision readability
-            const base64Data = await resizeImage(reader.result, 720);
-            const response = await fetch("/api/ai/parse-product", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ image: base64Data }),
-            });
-
-            let data: any = {};
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.includes("application/json")) {
-              data = await response.json();
-            } else {
-              const text = await response.text();
-              const isHtml = text.trim().startsWith("<");
-              const cleanText = isHtml ? "Resposta inválida do servidor (HTML). Verifique se o servidor está ativo." : text;
-              throw new Error(cleanText || `Erro ${response.status} do servidor.`);
-            }
-
-            if (!response.ok) {
-              throw new Error(data.error || "Não foi possível analisar o anúncio.");
-            }
-
-            // Fill states
-            if (data.name) setFormName(data.name);
-            if (data.category) {
-              setFormCategory(data.category === "Sex Shop" ? "Sex Shop" : "Lingerie");
-            }
-            if (data.price !== undefined) {
-              setFormPrice(data.price.toString());
-            }
-            if (data.description) setFormDescription(data.description);
-            if (Array.isArray(data.sizes)) {
-              setFormSizes(data.sizes.join(", "));
-            }
-            if (Array.isArray(data.colors)) {
-              setFormColors(data.colors.join(", "));
-            }
-            if (Array.isArray(data.details)) {
-              setFormDetails(data.details.join(", "));
-            }
-            if (data.tag) {
-              setFormTag(data.tag);
-            } else {
-              setFormTag("");
-            }
-            
-            // Save the original full advertisement photo so the user can edit or restore
-            setOriginalUncroppedImage(base64Data);
-
-            // Set the uploaded advertisement image as the product photo, and try automatic cropping if cropBox is returned
-            if (data.cropBox && typeof data.cropBox === "object") {
-              const { x, y, width, height } = data.cropBox;
-              if (width > 0 && height > 0) {
-                try {
-                  const cropped = await cropImageCanvas(base64Data, { x, y, width, height });
-                  setFormImage(cropped);
-                  setCropBoxState({ x, y, width, height });
-                  setIsAutoCropped(true);
-                  showToast("✨ Cadastro preenchido e foto recortada automaticamente focando no produto!");
-                } catch (cropErr) {
-                  console.error("Falha no recorte automático da IA:", cropErr);
-                  setFormImage(base64Data);
-                  setCropBoxState({ x: 10, y: 10, width: 80, height: 80 });
-                  setIsAutoCropped(false);
-                  showToast("✨ Cadastro preenchido automaticamente pela IA!");
-                }
-              } else {
-                setFormImage(base64Data);
-                setCropBoxState({ x: 10, y: 10, width: 80, height: 80 });
-                setIsAutoCropped(false);
-                showToast("✨ Cadastro preenchido automaticamente pela IA!");
-              }
-            } else {
-              setFormImage(base64Data);
-              setCropBoxState({ x: 10, y: 10, width: 80, height: 80 });
-              setIsAutoCropped(false);
-              showToast("✨ Cadastro preenchido automaticamente pela IA!");
-            }
-          } catch (err: any) {
-            console.error(err);
-            setScanError(err.message || "Erro ao processar imagem do anúncio. Verifique a chave do Gemini.");
-            showToast("Erro ao processar o anúncio.");
-          } finally {
-            setScanLoading(false);
-          }
-        }
-      };
-      reader.onerror = () => {
-        showToast("Erro ao ler o arquivo de imagem.");
-        setScanLoading(false);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   // AI Studio states
   const [aiPrompt, setAiPrompt] = useState<string>("");
@@ -588,27 +475,22 @@ export default function AdminModal({
   const [aiLoading, setAiLoading] = useState<boolean>(false);
   const [aiError, setAiError] = useState<string>("");
 
-  const handleAiRefChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAiRefChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 50 * 1024 * 1024) {
         showToast("Por favor, selecione uma imagem menor que 50MB.");
         return;
       }
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        if (typeof reader.result === "string") {
-          try {
-            const compressed = await resizeImage(reader.result, 1024);
-            setAiRefImage(compressed);
-            showToast("Imagem de referência carregada!");
-          } catch (err) {
-            setAiRefImage(reader.result);
-            showToast("Imagem de referência carregada!");
-          }
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        showToast("Processando imagem de referência...");
+        const compressed = await resizeImage(file, 800);
+        setAiRefImage(compressed);
+        showToast("Imagem de referência carregada!");
+      } catch (err) {
+        console.error(err);
+        showToast("Erro ao processar imagem de referência.");
+      }
     }
   };
 
@@ -664,25 +546,7 @@ export default function AdminModal({
       showToast(`Processando ${fileList.length} imagem(ns)...`);
 
       Promise.all(fileList.map((file: File) => {
-        return new Promise<string | null>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = async () => {
-            if (typeof reader.result === "string") {
-              try {
-                // Compress and resize to max 800px width/height as an ultra-compact JPEG
-                const compressed = await resizeImage(reader.result, 800);
-                resolve(compressed);
-              } catch (err) {
-                // Fallback to original base64 if resizing fails
-                resolve(reader.result);
-              }
-            } else {
-              resolve(null);
-            }
-          };
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(file);
-        });
+        return resizeImage(file, 500).catch(() => null);
       })).then((results) => {
         const validResults = results.filter((res): res is string => typeof res === "string" && !!res);
         if (validResults.length > 0) {
@@ -709,6 +573,7 @@ export default function AdminModal({
         }
       }).catch((err) => {
         console.error("Erro no upload múltiplo:", err);
+        showToast("Erro ao carregar algumas fotos.");
       });
     }
   };
@@ -760,22 +625,7 @@ export default function AdminModal({
     }
   };
 
-  const handleImportExamples = async () => {
-    if (!auth.currentUser) {
-      showToast("Acesso negado: Você precisa estar autenticado.");
-      return;
-    }
-    try {
-      showToast("Carregando produtos de demonstração no Firestore...");
-      for (const prod of EXAMPLE_PRODUCTS) {
-        await setDoc(doc(db, "produtos", prod.id), prod);
-      }
-      showToast("Produtos de demonstração carregados com sucesso!");
-    } catch (err) {
-      console.error("Erro ao importar produtos:", err);
-      showToast("Erro ao carregar exemplos no Firestore.");
-    }
-  };
+
 
   const handleClearAll = async () => {
     if (!auth.currentUser) {
@@ -789,9 +639,12 @@ export default function AdminModal({
           await deleteDoc(doc(db, "produtos", p.id));
         }
         showToast("Todos os produtos foram removidos.");
-      } catch (err) {
+      } catch (err: any) {
         console.error("Erro ao remover todos os produtos:", err);
-        showToast("Erro ao remover produtos.");
+        showToast(`Erro ao remover produtos: ${err.message || "Erro desconhecido"}`);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, "produtos");
+        } catch (ignored) {}
       }
       setConfirmClearAll(false);
     } else {
@@ -812,9 +665,9 @@ export default function AdminModal({
     setFormDescription("");
     setFormImage("");
     setFormImages([]);
-    setFormSizes("P, M, G, GG");
-    setFormColors("Preto Absoluto, Vermelho Sensual");
-    setFormDetails("Material importado de alta qualidade, Toque macio e confortável");
+    setFormSizes("");
+    setFormColors("");
+    setFormDetails("");
     setFormTag("");
   };
 
@@ -867,6 +720,8 @@ export default function AdminModal({
       return;
     }
 
+    setSaveLoading(true);
+
     const finalImages = formImages.length > 0 ? formImages : (formImage ? [formImage] : []);
     const mainImage = formImage || finalImages[0] || "https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=80";
 
@@ -895,9 +750,11 @@ export default function AdminModal({
         showToast("Produto cadastrado com sucesso no Firestore!");
       }
       resetForm();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Erro ao salvar produto no Firestore:", err);
-      showToast("Erro ao salvar produto no Firestore.");
+      showToast(`Erro ao salvar produto: ${err.message || err.code || "Verifique as fotos"}`);
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -1029,9 +886,9 @@ export default function AdminModal({
             </div>
 
             {activeTab === "catalog" ? (
-              <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row min-h-0">
+              <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row min-h-0">
                 {/* Left side: Register/Edit Form */}
-                <div className="w-full lg:w-1/2 p-6 lg:border-r border-burgundy-900/40 space-y-4 overflow-y-auto">
+                <div className="w-full lg:w-1/2 p-6 lg:border-r border-burgundy-900/40 space-y-4 lg:overflow-y-auto">
                   <h3 className="text-xs font-bold uppercase tracking-widest text-gold-400 flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>{isEditing ? "Editar Produto" : "Cadastrar Novo Produto"}</span>
@@ -1320,55 +1177,6 @@ export default function AdminModal({
                         </div>
                       )}
 
-                      {/* Manual URL option toggle if they prefer to paste URL */}
-                      <div className="flex flex-col gap-1 pt-2 border-t border-stone-900">
-                        <div className="flex justify-between items-center text-[10px] text-stone-500 pt-1">
-                          <span>Ou selecione uma foto de teste rápida abaixo:</span>
-                        </div>
-                        {/* Quick image choices */}
-                        <div className="flex flex-wrap gap-1.5">
-                          <button 
-                            type="button" 
-                            onClick={() => {
-                              handleQuickImage("lingerie1");
-                              setFormImages(prev => prev.includes("https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=80") ? prev : [...prev, "https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=80"]);
-                            }}
-                            className="text-[9px] bg-stone-900 border border-stone-800 hover:border-gold-400/30 text-stone-400 hover:text-stone-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
-                          >
-                            Lingerie Renda
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => {
-                              handleQuickImage("lingerie2");
-                              setFormImages(prev => prev.includes("https://images.unsplash.com/photo-1508427953056-b00b8d78ecf5?w=600&auto=format&fit=crop&q=80") ? prev : [...prev, "https://images.unsplash.com/photo-1508427953056-b00b8d78ecf5?w=600&auto=format&fit=crop&q=80"]);
-                            }}
-                            className="text-[9px] bg-stone-900 border border-stone-800 hover:border-gold-400/30 text-stone-400 hover:text-stone-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
-                          >
-                            Veludo Sensual
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => {
-                              handleQuickImage("sexshop1");
-                              setFormImages(prev => prev.includes("https://images.unsplash.com/photo-1603006905003-be475563bc59?w=600&auto=format&fit=crop&q=80") ? prev : [...prev, "https://images.unsplash.com/photo-1603006905003-be475563bc59?w=600&auto=format&fit=crop&q=80"]);
-                            }}
-                            className="text-[9px] bg-stone-900 border border-stone-800 hover:border-gold-400/30 text-stone-400 hover:text-stone-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
-                          >
-                            Vela Massagem
-                          </button>
-                          <button 
-                            type="button" 
-                            onClick={() => {
-                              handleQuickImage("sexshop3");
-                              setFormImages(prev => prev.includes("https://images.unsplash.com/photo-1516975080664-ed2fc6a32937?w=600&auto=format&fit=crop&q=80") ? prev : [...prev, "https://images.unsplash.com/photo-1516975080664-ed2fc6a32937?w=600&auto=format&fit=crop&q=80"]);
-                            }}
-                            className="text-[9px] bg-stone-900 border border-stone-800 hover:border-gold-400/30 text-stone-400 hover:text-stone-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
-                          >
-                            Acessório Luna
-                          </button>
-                        </div>
-                      </div>
                     </div>
 
                     {/* Atributos: Tamanhos, Cores e Destaque */}
@@ -1410,9 +1218,21 @@ export default function AdminModal({
                     <div className="flex space-x-2 pt-2">
                       <button
                         type="submit"
-                        className="flex-1 bg-gold-500 hover:bg-gold-400 text-burgundy-950 font-extrabold uppercase py-3 rounded-xl transition-all cursor-pointer text-center text-[10px] tracking-wider"
+                        disabled={saveLoading}
+                        className={`flex-1 font-extrabold uppercase py-3 rounded-xl transition-all cursor-pointer text-center text-[10px] tracking-wider flex items-center justify-center gap-1.5 ${
+                          saveLoading 
+                            ? "bg-gold-500/50 text-burgundy-950/50 cursor-not-allowed" 
+                            : "bg-gold-500 hover:bg-gold-400 text-burgundy-950"
+                        }`}
                       >
-                        {isEditing ? "Salvar Alterações" : "Cadastrar Produto"}
+                        {saveLoading ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-burgundy-950" />
+                            <span>Salvando...</span>
+                          </>
+                        ) : (
+                          isEditing ? "Salvar Alterações" : "Cadastrar Produto"
+                        )}
                       </button>
                       {isEditing && (
                         <button
@@ -1428,23 +1248,15 @@ export default function AdminModal({
                 </div>
 
                 {/* Right side: Catalog List */}
-                <div className="w-full lg:w-1/2 p-6 flex flex-col space-y-4 overflow-y-auto bg-stone-950/20">
+                <div className="w-full lg:w-1/2 p-6 flex flex-col space-y-4 lg:overflow-y-auto bg-stone-950/20">
                   <div className="flex justify-between items-center">
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-widest text-gold-400">Produtos Cadastrados ({products.length})</h3>
                       <p className="text-[10px] text-stone-500">Estes produtos serão renderizados na loja.</p>
                     </div>
                     
-                    {/* Demo Action helpers */}
+                    {/* Action helpers */}
                     <div className="flex items-center space-x-1">
-                      <button
-                        onClick={handleImportExamples}
-                        className="p-1.5 rounded-lg bg-gold-500/10 hover:bg-gold-500/20 border border-gold-400/20 text-gold-300 text-[10px] font-bold flex items-center space-x-1 transition-all cursor-pointer"
-                        title="Preencher com produtos de demonstração para testes rápidos"
-                      >
-                        <RefreshCw className="w-3 h-3 animate-spin duration-1000" />
-                        <span className="hidden sm:inline">Preencher Demonstração</span>
-                      </button>
                       <button
                         onClick={handleClearAll}
                         className={`p-1.5 rounded-lg border text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
@@ -1468,7 +1280,7 @@ export default function AdminModal({
                       <div>
                         <h4 className="text-xs font-bold text-stone-400">Nenhum produto na loja</h4>
                         <p className="text-[11px] text-stone-600 max-w-xs mt-1">
-                          Conforme solicitado, a loja está temporariamente vazia. Use o formulário à esquerda para cadastrar ou clique em "Preencher Demonstração" acima.
+                          A loja está temporariamente sem produtos cadastrados. Use o formulário de cadastro ao lado para inserir novos produtos.
                         </p>
                       </div>
                     </div>
@@ -1532,10 +1344,10 @@ export default function AdminModal({
               </div>
             ) : (
               /* AI Image Studio Tab View */
-              <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row min-h-0 text-stone-200 animate-in fade-in duration-200">
+              <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row min-h-0 text-stone-200 animate-in fade-in duration-200">
                 
                 {/* Left Side: Parameters & Configuration */}
-                <div className="w-full lg:w-1/2 p-6 lg:border-r border-burgundy-900/40 space-y-5 overflow-y-auto">
+                <div className="w-full lg:w-1/2 p-6 lg:border-r border-burgundy-900/40 space-y-5 lg:overflow-y-auto">
                   <div className="space-y-1">
                     <h3 className="text-sm font-bold text-gold-300 font-display flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-gold-400 animate-pulse" />
@@ -1787,7 +1599,7 @@ export default function AdminModal({
                 </div>
 
                 {/* Right Side: Visualizer Canvas & Outputs */}
-                <div className="w-full lg:w-1/2 p-6 flex flex-col space-y-4 overflow-y-auto bg-stone-950/20 items-center justify-center relative min-h-[45vh] lg:min-h-0">
+                <div className="w-full lg:w-1/2 p-6 flex flex-col space-y-4 lg:overflow-y-auto bg-stone-950/20 items-center justify-center relative min-h-[45vh] lg:min-h-0">
                   {aiLoading ? (
                     <div className="flex flex-col items-center justify-center p-12 text-center space-y-6 bg-stone-950/40 rounded-3xl border border-gold-500/10 max-w-sm w-full shadow-2xl animate-pulse">
                       <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-gold-500 to-burgundy-900/30 flex items-center justify-center text-gold-300 relative">
