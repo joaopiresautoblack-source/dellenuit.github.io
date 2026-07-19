@@ -25,7 +25,7 @@ import { Product } from "../types";
 
 import { db, auth, handleFirestoreError, OperationType } from "../firebase";
 import { doc, setDoc, deleteDoc, collection, serverTimestamp } from "firebase/firestore";
-import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
+import { signInWithEmailAndPassword, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "firebase/auth";
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -113,142 +113,7 @@ const resizeImage = (fileOrBase64: File | string, maxDimension: number = 2048): 
   });
 };
 
-const enhanceImageAction = async (
-  base64Str: string,
-  level: "soft" | "medium" | "ultra",
-  upscale2x: boolean
-): Promise<string> => {
-  return new Promise((resolve) => {
-    try {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          let width = img.width;
-          let height = img.height;
 
-          // Apply 2x Upscale if selected
-          if (upscale2x) {
-            width = width * 2;
-            height = height * 2;
-            // Keep it within standard limits (max 2048px to prevent heavy memory/payload errors)
-            if (width > 2048 || height > 2048) {
-              const ratio = Math.min(2048 / width, 2048 / height);
-              width = Math.round(width * ratio);
-              height = Math.round(height * ratio);
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            resolve(base64Str);
-            return;
-          }
-
-          // Configure high-quality image smoothing for the upscale interpolation
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = "high";
-
-          // Apply subtle lighting/color improvements via Canvas context filter
-          let contrast = 1.0;
-          let saturate = 1.0;
-          let brightness = 1.0;
-
-          if (level === "soft") {
-            contrast = 1.05;
-            saturate = 1.03;
-            brightness = 1.02;
-          } else if (level === "medium") {
-            contrast = 1.10;
-            saturate = 1.07;
-            brightness = 1.03;
-          } else if (level === "ultra") {
-            contrast = 1.18;
-            saturate = 1.12;
-            brightness = 1.04;
-          }
-
-          ctx.filter = `contrast(${contrast}) saturate(${saturate}) brightness(${brightness})`;
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // Now grab the imageData to apply pixel-level high-frequency sharpening convolution!
-          try {
-            const imgData = ctx.getImageData(0, 0, width, height);
-            
-            let sharpenAmount = 0.0;
-            if (level === "soft") sharpenAmount = 0.12;
-            else if (level === "medium") sharpenAmount = 0.25;
-            else if (level === "ultra") sharpenAmount = 0.45;
-
-            if (sharpenAmount > 0) {
-              // Perform 3x3 sharpening convolution
-              const input = imgData.data;
-              const output = new Uint8ClampedArray(input.length);
-              const w = imgData.width;
-              const h = imgData.height;
-              const a = sharpenAmount;
-              const centerWeight = 1 + 4 * a;
-              const edgeWeight = -a;
-
-              // Copy alphas directly
-              for (let i = 3; i < input.length; i += 4) {
-                output[i] = input[i];
-              }
-
-              for (let y = 0; y < h; y++) {
-                for (let x = 0; x < w; x++) {
-                  const idx = (y * w + x) * 4;
-                  
-                  for (let c = 0; c < 3; c++) {
-                    const currentIdx = idx + c;
-                    const top = y > 0 ? input[((y - 1) * w + x) * 4 + c] : input[currentIdx];
-                    const bottom = y < h - 1 ? input[((y + 1) * w + x) * 4 + c] : input[currentIdx];
-                    const left = x > 0 ? input[(y * w + x - 1) * 4 + c] : input[currentIdx];
-                    const right = x < w - 1 ? input[(y * w + x + 1) * 4 + c] : input[currentIdx];
-                    const center = input[currentIdx];
-
-                    const val = center * centerWeight + (top + bottom + left + right) * edgeWeight;
-                    output[currentIdx] = val < 0 ? 0 : (val > 255 ? 255 : val);
-                  }
-                }
-              }
-
-              // Write back to imgData
-              imgData.data.set(output);
-              ctx.putImageData(imgData, 0, 0);
-            }
-          } catch (pixelErr) {
-            console.warn("Filtro de pixel avançado ignorado (imagem sem CORS habilitado ou erro de suporte):", pixelErr);
-            // We still have the contrast/saturate/brightness applied directly via context filter, so we continue!
-          }
-
-          // Return JPEG format to keep base64 extremely lightweight
-          try {
-            resolve(canvas.toDataURL("image/jpeg", 0.75));
-          } catch (toDataUrlErr) {
-            console.warn("toDataURL falhou devido a restrições de segurança de origem da imagem externa. Retornando imagem original.");
-            resolve(base64Str);
-          }
-        } catch (innerErr) {
-          console.error("Erro interno ao melhorar imagem:", innerErr);
-          resolve(base64Str);
-        }
-      };
-      img.onerror = (err) => {
-        console.error("Erro no carregamento do arquivo de imagem:", err);
-        resolve(base64Str);
-      };
-      img.src = base64Str;
-    } catch (err) {
-      console.error("Erro no manipulador de realce de imagem:", err);
-      resolve(base64Str);
-    }
-  });
-};
 
 export default function AdminModal({
   isOpen,
@@ -257,7 +122,9 @@ export default function AdminModal({
   onSaveProducts,
   showToast
 }: AdminModalProps) {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authReady, setAuthReady] = useState<boolean>(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState<any>(null);
+  const isAuthenticated = authReady && authenticatedUser !== null && authenticatedUser.uid === "GfUnnd6oYcZVdgUBc9gFVXiO4t92";
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
@@ -319,44 +186,9 @@ export default function AdminModal({
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isDecodingImage, setIsDecodingImage] = useState<boolean>(false);
 
-  // Image Enhancement States
+  // Image Cropping State Tracking
   const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
-  const [isEnhancerOpen, setIsEnhancerOpen] = useState<boolean>(false);
-  const [enhancementLevel, setEnhancementLevel] = useState<"soft" | "medium" | "ultra">("medium");
-  const [upscale2x, setUpscale2x] = useState<boolean>(true);
-  const [enhancedPreviewImage, setEnhancedPreviewImage] = useState<string>("");
-  const [isProcessingEnhance, setIsProcessingEnhance] = useState<boolean>(false);
-
-  const handleOpenEnhancer = async () => {
-    const targetImg = editingImageIndex !== null && editingImageIndex !== -1 ? formImages[editingImageIndex] : formImage;
-    if (!targetImg) return;
-    setIsProcessingEnhance(true);
-    setEnhancedPreviewImage("");
-    setIsEnhancerOpen(true);
-    try {
-      const result = await enhanceImageAction(targetImg, enhancementLevel, upscale2x);
-      setEnhancedPreviewImage(result);
-    } catch (err) {
-      console.error(err);
-      setEnhancedPreviewImage(targetImg);
-    } finally {
-      setIsProcessingEnhance(false);
-    }
-  };
-
-  const handleUpdateEnhancementPreview = async (level: "soft" | "medium" | "ultra", upscale: boolean) => {
-    const targetImg = editingImageIndex !== null && editingImageIndex !== -1 ? formImages[editingImageIndex] : formImage;
-    if (!targetImg) return;
-    setIsProcessingEnhance(true);
-    try {
-      const result = await enhanceImageAction(targetImg, level, upscale);
-      setEnhancedPreviewImage(result);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsProcessingEnhance(false);
-    }
-  };
+  const [editingImageType, setEditingImageType] = useState<"cover" | "gallery" | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     setIsDragging(true);
@@ -503,7 +335,7 @@ export default function AdminModal({
   };
 
   // Helper to load, validate, and decode an image before opening the crop editor
-  const handleOpenCropperFor = async (imageUrl: string, index: number | null) => {
+  const handleOpenCropperFor = async (imageUrl: string, type: "cover" | "gallery", index: number | null) => {
     if (!imageUrl) {
       showToast("Link ou arquivo de imagem inválido.");
       return;
@@ -578,6 +410,7 @@ export default function AdminModal({
       setZoom(1);
       setPosition({ x: 0, y: 0 });
       setRotation(0);
+      setEditingImageType(type);
       setEditingImageIndex(index);
       setIsCropperOpen(true);
     } catch (err) {
@@ -602,36 +435,53 @@ export default function AdminModal({
         [finalUrl]: originalUncroppedImage
       }));
       
-      if (editingImageIndex !== null && editingImageIndex !== -1) {
-        const originalUrl = formImages[editingImageIndex];
+      if (editingImageType === "cover") {
+        setFormImage(finalUrl);
         setFormImages(prev => {
-          const updated = [...prev];
-          updated[editingImageIndex] = finalUrl;
-          return updated;
-        });
-        if (originalUrl === formImage) {
-          setFormImage(finalUrl);
-        }
-      } else {
-        setFormImages(prev => {
+          if (editingImageIndex !== null && editingImageIndex !== -1) {
+            const updated = [...prev];
+            updated[editingImageIndex] = finalUrl;
+            return updated;
+          }
           if (!prev.includes(finalUrl)) {
-            return [...prev, finalUrl];
+            return [finalUrl, ...prev];
           }
           return prev;
         });
-        setFormImage(prev => prev || finalUrl);
+      } else {
+        // gallery
+        if (editingImageIndex !== null && editingImageIndex !== -1) {
+          const originalUrl = formImages[editingImageIndex];
+          setFormImages(prev => {
+            const updated = [...prev];
+            updated[editingImageIndex] = finalUrl;
+            return updated;
+          });
+          if (originalUrl === formImage) {
+            setFormImage(finalUrl);
+          }
+        } else {
+          setFormImages(prev => {
+            if (!prev.includes(finalUrl)) {
+              return [...prev, finalUrl];
+            }
+            return prev;
+          });
+          setFormImage(prev => prev || finalUrl);
+        }
       }
       
       showToast("✨ Foto processada com sucesso!");
       console.log("5 - Fechando editor");
       setIsCropperOpen(false);
+      setEditingImageType(null);
       setEditingImageIndex(null);
       
       // Handle remaining items in queue sequentially using async loader
       if (pendingCropQueue.length > 1) {
         const nextQueue = pendingCropQueue.slice(1);
         setPendingCropQueue(nextQueue);
-        handleOpenCropperFor(nextQueue[0], -1);
+        handleOpenCropperFor(nextQueue[0], "gallery", -1);
       } else {
         setPendingCropQueue([]);
       }
@@ -645,11 +495,12 @@ export default function AdminModal({
 
   const handleCancelCrop = () => {
     setIsCropperOpen(false);
+    setEditingImageType(null);
     setEditingImageIndex(null);
     if (pendingCropQueue.length > 1) {
       const nextQueue = pendingCropQueue.slice(1);
       setPendingCropQueue(nextQueue);
-      handleOpenCropperFor(nextQueue[0], -1);
+      handleOpenCropperFor(nextQueue[0], "gallery", -1);
     } else {
       setPendingCropQueue([]);
     }
@@ -667,16 +518,12 @@ export default function AdminModal({
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setIsAuthenticated(true);
+      if (user && user.uid === "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+        setAuthenticatedUser(user);
       } else {
-        const localAuth = sessionStorage.getItem("bellenuit_local_auth");
-        if (localAuth === "true") {
-          setIsAuthenticated(true);
-        } else {
-          setIsAuthenticated(false);
-        }
+        setAuthenticatedUser(null);
       }
+      setAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
@@ -791,11 +638,11 @@ export default function AdminModal({
           // Replace mode: trigger cropping panel directly for this specific slot
           const targetIndex = replacingImageIndex;
           setReplacingImageIndex(null);
-          handleOpenCropperFor(validUrls[0], targetIndex);
+          handleOpenCropperFor(validUrls[0], "gallery", targetIndex);
         } else {
           // Standard additions: Queue them up so the user can crop them one by one
           setPendingCropQueue(validUrls);
-          handleOpenCropperFor(validUrls[0], -1);
+          handleOpenCropperFor(validUrls[0], "gallery", -1);
         }
       } catch (err: any) {
         console.error("Erro ao carregar arquivos de foto:", err);
@@ -815,50 +662,26 @@ export default function AdminModal({
     setLoginLoading(true);
     setLoginError("");
     try {
+      // 4. Persistência da autenticação
+      console.log("Configurando persistência...");
+      await setPersistence(auth, browserLocalPersistence);
+      
+      console.log("Iniciando login com e-mail/senha...");
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      if (user) {
-        setIsAuthenticated(true);
+      
+      if (user && user.uid === "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+        setAuthenticatedUser(user);
         showToast("Painel Administrativo Desbloqueado!");
       } else {
-        setLoginError("Acesso negado: Falha na autenticação.");
+        await signOut(auth);
+        setAuthenticatedUser(null);
+        setLoginError("Acesso negado: Usuário sem permissão administrativa.");
       }
     } catch (err: any) {
       console.error("Erro no login:", err);
-      // Fallback local robusto se o login por Email/Senha estiver desabilitado no Firebase Console,
-      // ou se ocorrer qualquer outro erro de configuração (por exemplo, auth/operation-not-allowed).
-      if (
-        err.code === "auth/operation-not-allowed" || 
-        err.code === "auth/configuration-not-found" || 
-        err.message?.includes("not-allowed") ||
-        err.message?.includes("operation")
-      ) {
-        console.warn("Bypass do Firebase Auth ativado: usando login local seguro de contingência.");
-        setIsAuthenticated(true);
-        sessionStorage.setItem("bellenuit_local_auth", "true");
-        showToast("✨ Acessando via Modo de Segurança Local!");
-      } else if (
-        err.code === "auth/user-not-found" || 
-        err.code === "auth/wrong-password" || 
-        err.code === "auth/invalid-credential" || 
-        err.code === "auth/invalid-email"
-      ) {
-        // Se as credenciais estiverem explícitas e forem as corretas do admin, permita logar também como contingência
-        if (password.length >= 6) {
-          console.warn("Senha inserida válida. Permitindo acesso via Modo de Segurança Local.");
-          setIsAuthenticated(true);
-          sessionStorage.setItem("bellenuit_local_auth", "true");
-          showToast("✨ Conectado via Modo de Segurança Local!");
-        } else {
-          setLoginError("E-mail ou senha incorretos.");
-        }
-      } else {
-        // Outros erros gerais (ex: de rede ou API Key desconfigurada), permitimos acesso para não travar o cliente
-        console.warn("Erro genérico detectado. Ativando bypass de login local:", err.code);
-        setIsAuthenticated(true);
-        sessionStorage.setItem("bellenuit_local_auth", "true");
-        showToast("✨ Conectado via Modo de Segurança Local!");
-      }
+      setAuthenticatedUser(null);
+      setLoginError(err.message || "E-mail ou senha incorretos.");
     } finally {
       setLoginLoading(false);
     }
@@ -867,13 +690,11 @@ export default function AdminModal({
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      sessionStorage.removeItem("bellenuit_local_auth");
-      setIsAuthenticated(false);
+      setAuthenticatedUser(null);
       showToast("Você saiu do painel administrativo.");
     } catch (err) {
       console.error("Erro ao deslogar:", err);
-      sessionStorage.removeItem("bellenuit_local_auth");
-      setIsAuthenticated(false);
+      setAuthenticatedUser(null);
       showToast("Você saiu do painel administrativo.");
     }
   };
@@ -881,8 +702,9 @@ export default function AdminModal({
 
 
   const handleClearAll = async () => {
-    if (!auth.currentUser) {
-      showToast("Acesso negado: Você precisa estar autenticado.");
+    const user = auth.currentUser;
+    if (!user || user.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      showToast("Acesso negado: Você precisa estar autenticado com a conta administrativa.");
       return;
     }
     if (confirmClearAll) {
@@ -944,8 +766,9 @@ export default function AdminModal({
   };
 
   const handleDeleteClick = async (productId: string) => {
-    if (!auth.currentUser) {
-      showToast("Acesso negado: Você precisa estar autenticado.");
+    const user = auth.currentUser;
+    if (!user || user.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      showToast("Acesso negado: Você precisa estar autenticado com a conta administrativa.");
       return;
     }
     if (confirmDeleteId === productId) {
@@ -971,21 +794,29 @@ export default function AdminModal({
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isLocal = sessionStorage.getItem("bellenuit_local_auth") === "true";
-    const currentUid = auth.currentUser?.uid;
-    if (!isLocal && (!auth.currentUser || currentUid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92")) {
-      showToast("Acesso negado: Apenas o administrador autorizado (UID: GfUnnd6oYcZVdgUBc9gFVXiO4t92) pode cadastrar produtos.");
-      return;
-    }
-    if (!formName || !formPrice) {
-      showToast("Preencha o nome e preço do produto.");
-      return;
-    }
-
-    console.log("1 - Iniciando cadastro");
-    setSaveLoading(true);
-
+    
     try {
+      console.log("AUTH READY:", authReady);
+      console.log("CURRENT USER:", auth.currentUser?.uid);
+      console.log("INICIANDO CADASTRO");
+
+      if (!authReady) {
+        throw new Error("Aguardando inicialização do Firebase Auth...");
+      }
+
+      const user = auth.currentUser;
+      if (!user) {
+        throw new Error("Sessão do administrador não encontrada.");
+      }
+      if (user.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+        throw new Error("Usuário sem permissão administrativa.");
+      }
+
+      if (!formName || !formPrice) {
+        throw new Error("Preencha o nome e preço do produto.");
+      }
+
+      setSaveLoading(true);
       showToast("Processando imagens e salvando produto...");
 
       // Upload any newly cropped/added local base64/blob images first
@@ -996,7 +827,7 @@ export default function AdminModal({
 
       const uploadedFormImages: string[] = [];
       for (const img of formImages) {
-        if (img.startsWith("data:") || img.startsWith("blob:")) {
+        if (img && (img.startsWith("data:") || img.startsWith("blob:"))) {
           const uploadedUrl = await uploadCroppedImage(img);
           uploadedFormImages.push(uploadedUrl);
         } else {
@@ -1023,7 +854,35 @@ export default function AdminModal({
         createdAt: serverTimestamp()
       };
 
-      console.log("2 - Dados enviados:", productData);
+      // Explicit validation check: reject if there is any data:, blob:, File, or Blob
+      const checkInvalidUrl = (url: any) => {
+        if (!url) return false;
+        if (typeof url !== "string") return true;
+        const low = url.toLowerCase();
+        if (low.startsWith("data:")) return true;
+        if (low.startsWith("blob:")) return true;
+        if (low.includes("file") || low.includes("blob") || low.includes("object") || low.includes("canvas")) return true;
+        return false;
+      };
+
+      if (checkInvalidUrl(productData.image)) {
+        throw { code: "VALIDATION_ERROR", message: "A imagem principal não é uma URL permanente válida. Formato inválido ou não carregou corretamente." };
+      }
+      for (let idx = 0; idx < productData.images.length; idx++) {
+        if (checkInvalidUrl(productData.images[idx])) {
+          throw { code: "VALIDATION_ERROR", message: `A imagem da galeria no índice ${idx} não é uma URL permanente válida. Formato inválido ou não carregou corretamente.` };
+        }
+      }
+
+      // 2. Validar o administrador no momento exato do cadastro (antes de setDoc)
+      const userRefreshed = auth.currentUser;
+      if (!userRefreshed) {
+        throw new Error("Sessão do administrador não encontrada.");
+      }
+      if (userRefreshed.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+        throw new Error("Usuário sem permissão administrativa.");
+      }
+      await userRefreshed.getIdToken(true);
 
       let productRef;
       if (isEditing && editingId) {
@@ -1032,26 +891,26 @@ export default function AdminModal({
           ...productData,
           id: editingId
         });
-        console.log("3 - Produto salvo no Firestore:", editingId);
-        showToast("Produto atualizado com sucesso no Firestore!");
+        showToast("✨ Produto atualizado com sucesso no Firestore!");
       } else {
         productRef = doc(collection(db, "produtos"));
         await setDoc(productRef, {
           ...productData,
           id: productRef.id
         });
-        console.log("3 - Produto salvo no Firestore:", productRef.id);
-        showToast("Produto cadastrado com sucesso no Firestore!");
+        showToast("✨ Produto cadastrado com sucesso no Firestore!");
       }
 
-      console.log("5 - Cadastro concluído");
+      console.log("PRODUTO SALVO");
       resetForm();
-    } catch (err: any) {
-      console.error("Erro ao cadastrar produto:", err);
-      showToast(`Erro ao salvar produto: ${err.message || err.code || "Verifique as fotos"}`);
-      try {
-        handleFirestoreError(err, isEditing ? OperationType.UPDATE : OperationType.CREATE, `produtos/${isEditing ? editingId : "new"}`);
-      } catch (ignored) {}
+    } catch (error: any) {
+      console.error("ERRO CADASTRO:", error);
+      console.error("CODE:", error?.code);
+      console.error("MESSAGE:", error?.message);
+
+      showToast(
+        `${error?.code || "erro"}: ${error?.message || "Falha desconhecida"}`
+      );
     } finally {
       setSaveLoading(false);
     }
@@ -1089,11 +948,7 @@ export default function AdminModal({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold tracking-wide font-display text-gold-200 font-sans">Painel do Administrador</h2>
-                {isAuthenticated && sessionStorage.getItem("bellenuit_local_auth") === "true" && (
-                  <span className="text-[8px] sm:text-[9px] bg-gold-500/10 border border-gold-500/20 text-gold-300 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider animate-pulse whitespace-nowrap">
-                    Modo Local
-                  </span>
-                )}
+
               </div>
               <p className="text-[10px] text-stone-400 uppercase tracking-widest font-semibold">Área Secreta de Controle de Catálogo</p>
             </div>
@@ -1387,7 +1242,7 @@ export default function AdminModal({
                                     type="button"
                                     onClick={() => {
                                       const orig = originalImages[imgUrl] || imgUrl;
-                                      handleOpenCropperFor(orig, index);
+                                      handleOpenCropperFor(orig, "gallery", index);
                                     }}
                                     className="p-1 rounded bg-stone-900 hover:bg-gold-500 text-gold-400 hover:text-stone-950 border border-stone-850 transition-all cursor-pointer flex items-center justify-center"
                                     title="Ajustar ou refazer o recorte"
@@ -1405,28 +1260,7 @@ export default function AdminModal({
                                   >
                                     <RefreshCw className="w-3 h-3" />
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      setEditingImageIndex(index);
-                                      setIsProcessingEnhance(true);
-                                      setEnhancedPreviewImage("");
-                                      setIsEnhancerOpen(true);
-                                      try {
-                                        const result = await enhanceImageAction(imgUrl, enhancementLevel, upscale2x);
-                                        setEnhancedPreviewImage(result);
-                                      } catch (err) {
-                                        console.error(err);
-                                        setEnhancedPreviewImage(imgUrl);
-                                      } finally {
-                                        setIsProcessingEnhance(false);
-                                      }
-                                    }}
-                                    className="p-1 rounded bg-stone-900 hover:bg-purple-500 text-purple-400 hover:text-stone-950 border border-stone-850 transition-all cursor-pointer flex items-center justify-center"
-                                    title="Melhorar qualidade HD desta foto individualmente"
-                                  >
-                                    <Sparkles className="w-3 h-3 animate-pulse" />
-                                  </button>
+
                                 </div>
                               </div>
 
@@ -1495,7 +1329,7 @@ export default function AdminModal({
                         </button>
                       </div>
 
-                      {/* Main cover tools like crop and enhance */}
+                      {/* Main cover tools like crop */}
                       {formImage && (
                         <div className="flex flex-wrap gap-2 pt-1 bg-stone-950/20 p-2 rounded-xl border border-stone-900">
                           <span className="text-[9px] text-stone-500 uppercase tracking-wider block w-full font-semibold">Ajustes para a capa selecionada:</span>
@@ -1504,22 +1338,13 @@ export default function AdminModal({
                             onClick={() => {
                               const orig = originalImages[formImage] || formImage;
                               const idx = formImages.indexOf(formImage);
-                              handleOpenCropperFor(orig, idx !== -1 ? idx : null);
+                              handleOpenCropperFor(orig, "cover", idx !== -1 ? idx : null);
                             }}
                             className="px-3 py-1.5 rounded-xl bg-gold-500/10 hover:bg-gold-500/20 text-gold-400 border border-gold-500/20 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
                             title="Ajustar ou fazer um novo recorte na foto principal"
                           >
                             <Crop className="w-3.5 h-3.5" />
                             <span>Recortar Foto</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleOpenEnhancer}
-                            className="px-3 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
-                            title="Melhorar nitidez, cores e resolução (Upscale HD)"
-                          >
-                            <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-                            <span>Melhorar Nitidez / HD</span>
                           </button>
 
                           {formImage && originalImages[formImage] && (
@@ -1613,9 +1438,9 @@ export default function AdminModal({
                     <div className="flex space-x-2 pt-2">
                       <button
                         type="submit"
-                        disabled={saveLoading}
+                        disabled={saveLoading || !authReady}
                         className={`flex-1 font-extrabold uppercase py-3 rounded-xl transition-all cursor-pointer text-center text-[10px] tracking-wider flex items-center justify-center gap-1.5 ${
-                          saveLoading 
+                          (saveLoading || !authReady) 
                             ? "bg-gold-500/50 text-burgundy-950/50 cursor-not-allowed" 
                             : "bg-gold-500 hover:bg-gold-400 text-burgundy-950"
                         }`}
@@ -1624,6 +1449,11 @@ export default function AdminModal({
                           <>
                             <RefreshCw className="w-3.5 h-3.5 animate-spin text-burgundy-950" />
                             <span>Salvando...</span>
+                          </>
+                        ) : !authReady ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-burgundy-950/50" />
+                            <span>Inicializando...</span>
                           </>
                         ) : (
                           isEditing ? "Salvar Alterações" : "Cadastrar Produto"
@@ -2333,248 +2163,7 @@ export default function AdminModal({
                     type="button"
                     disabled={isUploading}
                     onClick={handleCancelCrop}
-                    className="w-full bg-stone-950 hover:bg-stone-900 border border-stone-850 text-stone-400 hover:text-stone-100 font-bold text-[10px] py-2.5 rounded-xl transition-all cursor-pointer text-center"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        )}
-
-        {/* Image Quality Enhancer & Upscaling Modal */}
-        {(() => {
-          const activeEnhancingImage = editingImageIndex !== null && editingImageIndex !== -1 ? formImages[editingImageIndex] : formImage;
-          if (!isEnhancerOpen || !activeEnhancingImage) return null;
-          return (
-            <div className="fixed inset-0 z-[100] bg-stone-950/95 backdrop-blur-md flex items-center justify-center p-4">
-              <div className="bg-stone-900 border border-purple-500/20 rounded-3xl max-w-5xl w-full overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[95vh]">
-                
-                {/* Left Side: Live Comparison Canvas */}
-                <div className="flex-1 p-6 bg-stone-950 flex flex-col border-b md:border-b-0 md:border-r border-stone-850 overflow-y-auto">
-                  <div className="mb-4 flex justify-between items-center">
-                    <div>
-                      <span className="block text-[10px] text-purple-400 font-bold uppercase tracking-widest mb-1">
-                        Visualizador de Comparação
-                      </span>
-                      <p className="text-[10px] text-stone-400">
-                        Veja a diferença de nitidez e vibração em tempo real
-                      </p>
-                    </div>
-                    {isProcessingEnhance && (
-                      <span className="text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-1 rounded-md animate-pulse flex items-center gap-1.5 font-bold">
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                        REPROCESSANDO...
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1 items-center justify-center">
-                    {/* Before View */}
-                    <div className="relative group rounded-xl overflow-hidden border border-stone-800 bg-stone-900">
-                      <img 
-                        src={activeEnhancingImage} 
-                        alt="Antes" 
-                        className="w-full h-auto max-h-[300px] md:max-h-[380px] object-contain mx-auto"
-                      />
-                      <div className="absolute top-2 left-2 bg-stone-950/80 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[9px] font-bold text-stone-300 border border-stone-800 uppercase tracking-widest">
-                        Antes (Original)
-                      </div>
-                    </div>
-
-                    {/* After View with Upscale Enhancement */}
-                    <div className="relative group rounded-xl overflow-hidden border border-purple-500/30 bg-stone-900 shadow-lg shadow-purple-500/5">
-                      {isProcessingEnhance ? (
-                        <div className="absolute inset-0 bg-stone-950/85 backdrop-blur-sm flex flex-col items-center justify-center space-y-3 z-10">
-                          <div className="relative">
-                            <div className="w-12 h-12 rounded-full border-2 border-purple-500/10 border-t-purple-400 animate-spin"></div>
-                            <Sparkles className="w-5 h-5 text-purple-400 absolute inset-0 m-auto animate-pulse" />
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xs font-bold text-purple-300">Recalculando Pixels</p>
-                            <p className="text-[9px] text-stone-500 uppercase tracking-wider mt-1">Reforçando contornos & texturas...</p>
-                          </div>
-                        </div>
-                      ) : null}
-                      
-                      <img 
-                        src={enhancedPreviewImage || activeEnhancingImage} 
-                        alt="Depois" 
-                        className="w-full h-auto max-h-[300px] md:max-h-[380px] object-contain mx-auto"
-                      />
-                      <div className="absolute top-2 left-2 bg-purple-950/80 backdrop-blur-sm px-2.5 py-1 rounded-lg text-[9px] font-bold text-purple-300 border border-purple-500/30 uppercase tracking-widest">
-                        Depois (Melhorado HD)
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Side: Enhancement Control Console */}
-                <div className="w-full md:w-[360px] p-6 flex flex-col justify-between overflow-y-auto space-y-6 bg-stone-900/40">
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <h3 className="text-sm font-bold text-stone-100 flex items-center gap-1.5 font-display">
-                          <Sparkles className="w-4 h-4 text-purple-400" />
-                          <span>Melhorador de Imagens HD</span>
-                        </h3>
-                        <p className="text-[10px] text-stone-400 mt-0.5 leading-relaxed">
-                          Aumente a definição das fotos do seu catálogo usando filtros matemáticos de alta frequência e ajustes de contraste profissional.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsEnhancerOpen(false);
-                          setEditingImageIndex(null);
-                        }}
-                        className="p-1 rounded-lg bg-stone-950 hover:bg-stone-850 text-stone-400 hover:text-stone-200 transition-colors cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Super resolution toggle */}
-                    <div className="space-y-3 mb-6 p-4 rounded-2xl bg-stone-950/80 border border-purple-500/10 shadow-inner">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <span className="block text-xs font-bold text-stone-200">Super Resolução 2x</span>
-                          <span className="block text-[9px] text-stone-500">Duplica o número de pixels via interpolação HD</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextVal = !upscale2x;
-                            setUpscale2x(nextVal);
-                            handleUpdateEnhancementPreview(enhancementLevel, nextVal);
-                          }}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            upscale2x ? "bg-purple-500" : "bg-stone-800"
-                          }`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-stone-100 shadow ring-0 transition duration-200 ease-in-out ${
-                              upscale2x ? "translate-x-5" : "translate-x-0"
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Sharpness level selection cards */}
-                    <div className="space-y-2.5">
-                      <span className="block text-[9px] uppercase tracking-wider text-stone-400 font-bold">
-                        Nível de Nitidez & Contraste
-                      </span>
-
-                      {/* Level Soft */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEnhancementLevel("soft");
-                          handleUpdateEnhancementPreview("soft", upscale2x);
-                        }}
-                        className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
-                          enhancementLevel === "soft"
-                            ? "bg-purple-500/10 border-purple-500/40 shadow-md shadow-purple-500/5"
-                            : "bg-stone-950 border-stone-850 hover:border-stone-800 text-stone-300"
-                        }`}
-                      >
-                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${enhancementLevel === "soft" ? "bg-purple-400 animate-pulse" : "bg-stone-700"}`} />
-                        <div>
-                          <span className="block text-xs font-bold text-stone-100">Foco Suave (Light Sharp)</span>
-                          <span className="block text-[9px] text-stone-400 mt-0.5">Discreto realce de contornos e cores suaves, ideal para peles.</span>
-                        </div>
-                      </button>
-
-                      {/* Level Medium */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEnhancementLevel("medium");
-                          handleUpdateEnhancementPreview("medium", upscale2x);
-                        }}
-                        className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
-                          enhancementLevel === "medium"
-                            ? "bg-purple-500/10 border-purple-500/40 shadow-md shadow-purple-500/5"
-                            : "bg-stone-950 border-stone-850 hover:border-stone-800 text-stone-300"
-                        }`}
-                      >
-                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${enhancementLevel === "medium" ? "bg-purple-400 animate-pulse" : "bg-stone-700"}`} />
-                        <div>
-                          <span className="block text-xs font-bold text-stone-100 flex items-center gap-1.5">
-                            <span>Nitidez Médio (E-commerce HD)</span>
-                            <span className="text-[8px] bg-purple-500/20 text-purple-300 px-1 py-0.2 rounded font-extrabold uppercase">Recomendado</span>
-                          </span>
-                          <span className="block text-[9px] text-stone-400 mt-0.5">Foco ideal para lingeries. Destaca detalhes de rendas e tecidos.</span>
-                        </div>
-                      </button>
-
-                      {/* Level Ultra */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEnhancementLevel("ultra");
-                          handleUpdateEnhancementPreview("ultra", upscale2x);
-                        }}
-                        className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
-                          enhancementLevel === "ultra"
-                            ? "bg-purple-500/10 border-purple-500/40 shadow-md shadow-purple-500/5"
-                            : "bg-stone-950 border-stone-850 hover:border-stone-800 text-stone-300"
-                        }`}
-                      >
-                        <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${enhancementLevel === "ultra" ? "bg-purple-400 animate-pulse" : "bg-stone-700"}`} />
-                        <div>
-                          <span className="block text-xs font-bold text-stone-100">Super Definição 4K (Ultra Detail)</span>
-                          <span className="block text-[9px] text-stone-400 mt-0.5">Contraste acentuado e sharpening agressivo para máxima nitidez de acessórios.</span>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2 pt-4 border-t border-stone-850">
-                    <button
-                      type="button"
-                      disabled={isProcessingEnhance}
-                      onClick={() => {
-                        if (enhancedPreviewImage) {
-                          if (editingImageIndex !== null && editingImageIndex !== -1) {
-                            const originalUrl = formImages[editingImageIndex];
-                            setFormImages(prev => {
-                              const updated = [...prev];
-                              updated[editingImageIndex] = enhancedPreviewImage;
-                              return updated;
-                            });
-                            if (originalUrl === formImage) {
-                              setFormImage(enhancedPreviewImage);
-                            }
-                          } else {
-                            setFormImage(enhancedPreviewImage);
-                          }
-                          setIsEnhancerOpen(false);
-                          setEditingImageIndex(null);
-                          showToast("✨ Imagem atualizada com realce de qualidade HD!");
-                        } else {
-                          showToast("Aguarde a imagem terminar de processar.");
-                        }
-                      }}
-                      className={`w-full bg-purple-500 hover:bg-purple-400 text-stone-950 font-extrabold uppercase tracking-widest text-[10px] py-3.5 rounded-xl transition-all cursor-pointer text-center flex items-center justify-center space-x-1.5 shadow-lg shadow-purple-500/10 ${
-                        isProcessingEnhance ? "opacity-50 cursor-not-allowed" : ""
-                      }`}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>Aplicar Realce HD</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsEnhancerOpen(false);
-                        setEditingImageIndex(null);
-                      }}
-                      className="w-full bg-stone-950 hover:bg-stone-900 border border-stone-800 text-stone-300 hover:text-stone-100 font-bold text-[10px] py-2.5 rounded-xl transition-all cursor-pointer text-center"
+                    className="w-full bg-stone-950 hover:bg-stone-900 border border-stone-850 text-stone-400 hover:text-stone-100 font-bold text-[10px] py-2.5 rounded-xl transitionter text-center"
                     >
                       Descartar e Cancelar
                     </button>
@@ -2583,8 +2172,7 @@ export default function AdminModal({
 
               </div>
             </div>
-          );
-        })()}
+          )}
 
         {/* Footer info lock indicator */}
         <div className="p-4 bg-stone-950 border-t border-burgundy-900/60 text-center text-[10px] text-stone-500 flex items-center justify-center gap-1.5">
