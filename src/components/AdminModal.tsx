@@ -320,6 +320,8 @@ export default function AdminModal({
   const [formColors, setFormColors] = useState<string>("");
   const [formDetails, setFormDetails] = useState<string>("");
   const [formTag, setFormTag] = useState<string>("");
+  const [formRating, setFormRating] = useState<string>("5.0");
+  const [formReviewsCount, setFormReviewsCount] = useState<string>("1");
   const [saveLoading, setSaveLoading] = useState<boolean>(false);
 
   // Image Cropping States & Refs
@@ -669,6 +671,8 @@ export default function AdminModal({
     setFormColors("");
     setFormDetails("");
     setFormTag("");
+    setFormRating("5.0");
+    setFormReviewsCount("1");
   };
 
   const handleEditClick = (product: Product) => {
@@ -684,6 +688,8 @@ export default function AdminModal({
     setFormColors(product.colors.join(", "));
     setFormDetails(product.details.join(", "));
     setFormTag(product.tag || "");
+    setFormRating((product.rating ?? 5.0).toString());
+    setFormReviewsCount((product.reviewsCount ?? 1).toString());
   };
 
   const handleDeleteClick = async (productId: string) => {
@@ -695,9 +701,12 @@ export default function AdminModal({
       try {
         await deleteDoc(doc(db, "produtos", productId));
         showToast("Produto excluído com sucesso do Firestore.");
-      } catch (err) {
+      } catch (err: any) {
         console.error("Erro ao excluir do Firestore:", err);
-        showToast("Erro ao excluir do Firestore.");
+        showToast(`Erro ao excluir do Firestore: ${err.message || "Erro desconhecido"}`);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, `produtos/${productId}`);
+        } catch (ignored) {}
       }
       setConfirmDeleteId(null);
     } else {
@@ -733,8 +742,8 @@ export default function AdminModal({
       description: formDescription,
       image: mainImage,
       images: finalImages.length > 0 ? finalImages : [mainImage],
-      rating: isEditing ? (products.find(p => p.id === editingId)?.rating || 5.0) : 5.0,
-      reviewsCount: isEditing ? (products.find(p => p.id === editingId)?.reviewsCount || 1) : 1,
+      rating: parseFloat(formRating) || 5.0,
+      reviewsCount: parseInt(formReviewsCount, 10) || 1,
       sizes: formSizes.split(",").map(s => s.trim()).filter(Boolean),
       colors: formColors.split(",").map(c => c.trim()).filter(Boolean),
       details: formDetails.split(",").map(d => d.trim()).filter(Boolean),
@@ -753,6 +762,9 @@ export default function AdminModal({
     } catch (err: any) {
       console.error("Erro ao salvar produto no Firestore:", err);
       showToast(`Erro ao salvar produto: ${err.message || err.code || "Verifique as fotos"}`);
+      try {
+        handleFirestoreError(err, isEditing ? OperationType.UPDATE : OperationType.CREATE, `produtos/${isEditing ? editingId : newProduct.id}`);
+      } catch (ignored) {}
     } finally {
       setSaveLoading(false);
     }
