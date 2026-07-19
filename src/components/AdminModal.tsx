@@ -17,7 +17,9 @@ import {
   ZoomOut,
   RotateCw,
   ArrowLeft,
-  ArrowRight
+  ArrowRight,
+  Save,
+  Check
 } from "lucide-react";
 import { Product } from "../types";
 
@@ -291,6 +293,24 @@ export default function AdminModal({
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const cropContainerRef = useRef<HTMLDivElement>(null);
+  const createdObjectUrlsRef = useRef<string[]>([]);
+
+  // Cleanup object URLs when component unmounts
+  React.useEffect(() => {
+    return () => {
+      if (createdObjectUrlsRef.current.length > 0) {
+        console.log("Cleaning up object URLs:", createdObjectUrlsRef.current.length);
+        createdObjectUrlsRef.current.forEach((url) => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (e) {
+            console.warn("Failed to revoke URL:", url, e);
+          }
+        });
+        createdObjectUrlsRef.current = [];
+      }
+    };
+  }, []);
 
   // Advanced Gallery & Image Mappings (preserving uncropped original photos for re-cropping)
   const [originalImages, setOriginalImages] = useState<Record<string, string>>({});
@@ -361,48 +381,13 @@ export default function AdminModal({
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
-  // Real-time visual crop preview generation
-  const [previewUrl, setPreviewUrl] = useState<string>("");
-
-  React.useEffect(() => {
-    if (!originalUncroppedImage || !isCropperOpen) return;
-    
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 160;
-      canvas.height = 200; // 4:5 ratio
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.fillStyle = "#1c1917"; // elegant dark slate bg
-        ctx.fillRect(0, 0, 160, 200);
-        
-        ctx.translate(80, 100);
-        const scaleFactor = 160 / 280; // screen mask is 280px wide
-        
-        ctx.translate(position.x * scaleFactor, position.y * scaleFactor);
-        ctx.rotate((rotation * Math.PI) / 180);
-        ctx.scale(zoom * scaleFactor, zoom * scaleFactor);
-        
-        ctx.drawImage(
-          img,
-          -baseDimensions.width / 2,
-          -baseDimensions.height / 2,
-          baseDimensions.width,
-          baseDimensions.height
-        );
-        setPreviewUrl(canvas.toDataURL("image/jpeg", 0.85));
-      }
-    };
-    img.src = originalUncroppedImage;
-  }, [position, zoom, rotation, originalUncroppedImage, baseDimensions, isCropperOpen]);
-
   // Generates high-fidelity high-resolution crop (target 1600x2000px)
   const generateHighResCrop = (): Promise<string> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      if (!originalUncroppedImage.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+      }
       img.onload = () => {
         try {
           const canvas = document.createElement("canvas");
@@ -445,7 +430,49 @@ export default function AdminModal({
             baseDimensions.height
           );
           
-          resolve(canvas.toDataURL("image/jpeg", 0.90));
+          // Asynchronously export the canvas using toBlob to keep Safari responsive
+          const handleBlob = (blob: Blob | null) => {
+            if (!blob) {
+              reject(new Error("Falha ao gerar o arquivo de imagem recortada."));
+              return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              if (reader.result) {
+                resolve(reader.result as string);
+              } else {
+                reject(new Error("Falha ao ler os dados binários da imagem processada."));
+              }
+            };
+            reader.onerror = () => reject(new Error("Erro ao ler o arquivo temporário."));
+            reader.readAsDataURL(blob);
+          };
+
+          try {
+            canvas.toBlob(
+              (blob) => {
+                if (blob) {
+                  handleBlob(blob);
+                } else {
+                  // Fallback to JPEG if WebP generation returned null
+                  canvas.toBlob(
+                    (fallbackBlob) => handleBlob(fallbackBlob),
+                    "image/jpeg",
+                    0.95
+                  );
+                }
+              },
+              "image/webp",
+              0.92
+            );
+          } catch (blobErr) {
+            // Synchronous fail fallback to JPEG toBlob
+            canvas.toBlob(
+              (fallbackBlob) => handleBlob(fallbackBlob),
+              "image/jpeg",
+              0.95
+            );
+          }
         } catch (err) {
           reject(err);
         }
@@ -727,45 +754,31 @@ export default function AdminModal({
     const files = e.target.files;
     if (files && files.length > 0) {
       const fileList = Array.from(files);
-      
-      // Diagnose and log file details
-      fileList.forEach((file: any) => {
-        console.log("Arquivo:", file.name, file.type, file.size);
-      });
+      const validUrls: string[] = [];
 
-      showToast(`Carregando ${fileList.length} foto(s)...`);
+      try {
+        for (const fileItem of fileList) {
+          const file = fileItem as File;
+          // Diagnose and log file details
+          console.log("Arquivo:", file.name, file.type, file.size);
 
-      // Read each file as a high-fidelity original uncropped DataURL
-      const promises = fileList.map((file: File) => {
-        return new Promise<string>((resolve, reject) => {
           if (!file || file.size === 0) {
-            reject(new Error("O arquivo selecionado está vazio ou corrompido."));
-            return;
+            throw new Error(`O arquivo "${file.name}" está vazio ou corrompido.`);
           }
 
           // Check if HEIC or HEIF format
           const isHeic = file.type === "image/heic" || file.type === "image/heif" ||
                          file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
           if (isHeic) {
-            reject(new Error("Esta imagem precisa ser convertida para JPEG/PNG antes da edição."));
-            return;
+            throw new Error(`A imagem "${file.name}" precisa ser convertida para JPEG/PNG antes da edição.`);
           }
 
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (reader.result) {
-              resolve(reader.result as string);
-            } else {
-              reject(new Error("Erro ao carregar os dados da imagem."));
-            }
-          };
-          reader.onerror = () => reject(new Error("Erro ao ler o arquivo físico."));
-          reader.readAsDataURL(file);
-        });
-      });
+          // Generate instant temporary object URL to avoid base64 memory overhead
+          const objUrl = URL.createObjectURL(file);
+          createdObjectUrlsRef.current.push(objUrl);
+          validUrls.push(objUrl);
+        }
 
-      Promise.all(promises).then((dataUrls) => {
-        const validUrls = dataUrls.filter((url): url is string => !!url);
         if (validUrls.length === 0) return;
 
         if (replacingImageIndex !== null) {
@@ -778,10 +791,10 @@ export default function AdminModal({
           setPendingCropQueue(validUrls);
           handleOpenCropperFor(validUrls[0], -1);
         }
-      }).catch((err: any) => {
-        console.error("Erro ao ler arquivos de foto:", err);
-        showToast(err.message || "Falha ao ler os arquivos das imagens.");
-      });
+      } catch (err: any) {
+        console.error("Erro ao carregar arquivos de foto:", err);
+        showToast(err.message || "Falha ao carregar as imagens.");
+      }
     }
   };
 
@@ -2131,16 +2144,18 @@ export default function AdminModal({
 
                   {/* Real-Time Live Preview section showing cropped outcome */}
                   <div className="bg-stone-950/60 p-3 rounded-2xl border border-stone-850/50 flex items-center gap-4">
-                    <div className="w-[80px] h-[100px] bg-stone-900 rounded-lg overflow-hidden border border-gold-500/20 relative shadow-inner">
-                      {previewUrl ? (
-                        <img 
-                          src={previewUrl} 
-                          alt="Resultado final" 
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center text-[8px] text-stone-600">Calculando...</div>
-                      )}
+                    <div className="w-[80px] h-[100px] bg-stone-900 rounded-lg overflow-hidden border border-gold-500/20 relative shadow-inner flex items-center justify-center">
+                      <img 
+                        src={originalUncroppedImage} 
+                        alt="Resultado final" 
+                        className="max-w-none pointer-events-none select-none block"
+                        style={{
+                          width: `${baseDimensions.width * (80 / 280)}px`,
+                          height: `${baseDimensions.height * (80 / 280)}px`,
+                          transform: `translate(${position.x * (80 / 280)}px, ${position.y * (80 / 280)}px) scale(${zoom}) rotate(${rotation}deg)`,
+                          transformOrigin: "center center",
+                        }}
+                      />
                     </div>
                     <div className="flex-1 space-y-1">
                       <span className="block text-[8px] uppercase tracking-widest text-gold-400 font-bold font-mono">Pré-visualização</span>
@@ -2251,7 +2266,7 @@ export default function AdminModal({
                   </button>
                 </div>
 
-                {/* Footer Buttons: Apply & Cancel */}
+                {/* Footer Buttons: Save & Close & Cancel */}
                 <div className="space-y-2 pt-4 border-t border-stone-850">
                   <button
                     type="button"
@@ -2266,8 +2281,8 @@ export default function AdminModal({
                       </>
                     ) : (
                       <>
-                        <Crop className="w-3.5 h-3.5" />
-                        <span>Aplicar imagem</span>
+                        <Save className="w-3.5 h-3.5" />
+                        <span>Salvar e Fechar</span>
                       </>
                     )}
                   </button>
