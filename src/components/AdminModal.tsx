@@ -280,6 +280,8 @@ export default function AdminModal({
 
   // Image Cropping States & Refs
   const [originalUncroppedImage, setOriginalUncroppedImage] = useState<string>("");
+  const [originalWidth, setOriginalWidth] = useState<number>(0);
+  const [originalHeight, setOriginalHeight] = useState<number>(0);
   const [isCropperOpen, setIsCropperOpen] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(1);
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -476,15 +478,28 @@ export default function AdminModal({
       showToast("Link ou arquivo de imagem inválido.");
       return;
     }
+
+    const isHeic = imageUrl.toLowerCase().startsWith("data:image/heic") || 
+                   imageUrl.toLowerCase().startsWith("data:image/heif") || 
+                   imageUrl.toLowerCase().includes(".heic") || 
+                   imageUrl.toLowerCase().includes(".heif");
+    if (isHeic) {
+      showToast("Esta imagem precisa ser convertida para JPEG/PNG antes da edição.");
+      return;
+    }
+
     setIsDecodingImage(true);
     showToast("Carregando imagem...");
 
     try {
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      if (!imageUrl.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+      }
 
       await new Promise<void>((resolve, reject) => {
         img.onload = () => {
+          console.log("Imagem carregada:", img.naturalWidth, img.naturalHeight);
           if (typeof img.decode === "function") {
             img.decode()
               .then(() => resolve())
@@ -527,6 +542,8 @@ export default function AdminModal({
       }
 
       setBaseDimensions({ width, height });
+      setOriginalWidth(naturalWidth);
+      setOriginalHeight(naturalHeight);
       setOriginalUncroppedImage(imageUrl);
       setZoom(1);
       setPosition({ x: 0, y: 0 });
@@ -710,14 +727,39 @@ export default function AdminModal({
     const files = e.target.files;
     if (files && files.length > 0) {
       const fileList = Array.from(files);
+      
+      // Diagnose and log file details
+      fileList.forEach((file: any) => {
+        console.log("Arquivo:", file.name, file.type, file.size);
+      });
+
       showToast(`Carregando ${fileList.length} foto(s)...`);
 
       // Read each file as a high-fidelity original uncropped DataURL
       const promises = fileList.map((file: File) => {
         return new Promise<string>((resolve, reject) => {
+          if (!file || file.size === 0) {
+            reject(new Error("O arquivo selecionado está vazio ou corrompido."));
+            return;
+          }
+
+          // Check if HEIC or HEIF format
+          const isHeic = file.type === "image/heic" || file.type === "image/heif" ||
+                         file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
+          if (isHeic) {
+            reject(new Error("Esta imagem precisa ser convertida para JPEG/PNG antes da edição."));
+            return;
+          }
+
           const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
+          reader.onload = () => {
+            if (reader.result) {
+              resolve(reader.result as string);
+            } else {
+              reject(new Error("Erro ao carregar os dados da imagem."));
+            }
+          };
+          reader.onerror = () => reject(new Error("Erro ao ler o arquivo físico."));
           reader.readAsDataURL(file);
         });
       });
@@ -736,9 +778,9 @@ export default function AdminModal({
           setPendingCropQueue(validUrls);
           handleOpenCropperFor(validUrls[0], -1);
         }
-      }).catch((err) => {
+      }).catch((err: any) => {
         console.error("Erro ao ler arquivos de foto:", err);
-        showToast("Falha ao ler os arquivos das imagens.");
+        showToast(err.message || "Falha ao ler os arquivos das imagens.");
       });
     }
   };
@@ -2010,7 +2052,7 @@ export default function AdminModal({
         )}
 
         {/* Manual Cropper Modal */}
-        {isCropperOpen && originalUncroppedImage && (
+        {isCropperOpen && originalUncroppedImage && originalWidth > 0 && originalHeight > 0 && (
           <div className="fixed inset-0 z-[100] bg-stone-950/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
             <div className="bg-stone-900 border border-gold-500/20 rounded-3xl max-w-4xl w-full overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[95vh] md:max-h-[90vh]">
               
@@ -2022,7 +2064,7 @@ export default function AdminModal({
                     Arraste a foto para reposicionar. Use a barra lateral ou os controles para dar zoom e rotacionar.
                   </p>
                 </div>
-
+ 
                 {/* Viewport container strictly matching 4:5 proportion */}
                 <div className="relative w-[280px] h-[350px] overflow-hidden rounded-2xl border border-gold-500/30 bg-stone-900 shadow-2xl select-none">
                   {/* Grid Lines for reference */}
@@ -2035,7 +2077,7 @@ export default function AdminModal({
                   
                   {/* Centered Target Area Border Highlight */}
                   <div className="absolute inset-0 border-2 border-gold-500/20 rounded-2xl pointer-events-none z-10"></div>
-
+ 
                   {/* Interactivity Area */}
                   <div
                     onPointerDown={handlePointerDown}
@@ -2059,9 +2101,9 @@ export default function AdminModal({
                     />
                   </div>
                 </div>
-
+ 
                 <div className="mt-4 px-3 py-1 rounded-full bg-stone-900/60 border border-stone-850/40 text-[9px] uppercase tracking-widest text-stone-400 font-mono">
-                  Dimensões Originais: {baseDimensions.width} x {baseDimensions.height} px
+                  Dimensões Originais: {originalWidth} x {originalHeight} px
                 </div>
               </div>
 
