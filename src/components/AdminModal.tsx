@@ -383,6 +383,7 @@ export default function AdminModal({
 
   // Generates high-fidelity high-resolution crop (target 1600x2000px)
   const generateHighResCrop = (): Promise<string> => {
+    console.log("1 - Iniciando processamento");
     return new Promise((resolve, reject) => {
       const img = new Image();
       if (!originalUncroppedImage.startsWith("data:")) {
@@ -410,6 +411,7 @@ export default function AdminModal({
             return;
           }
           
+          console.log("2 - Canvas criado");
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = "high";
           ctx.fillStyle = "#ffffff";
@@ -436,6 +438,7 @@ export default function AdminModal({
               reject(new Error("Falha ao gerar o arquivo de imagem recortada."));
               return;
             }
+            console.log("3 - Blob criado");
             const reader = new FileReader();
             reader.onloadend = () => {
               if (reader.result) {
@@ -590,7 +593,9 @@ export default function AdminModal({
     setIsUploading(true);
     try {
       const croppedBase64 = await generateHighResCrop();
-      const finalUrl = await uploadCroppedImage(croppedBase64);
+      
+      console.log("4 - Imagem adicionada ao formulário");
+      const finalUrl = croppedBase64;
       
       setOriginalImages(prev => ({
         ...prev,
@@ -617,7 +622,8 @@ export default function AdminModal({
         setFormImage(prev => prev || finalUrl);
       }
       
-      showToast("✨ Foto processada e salva em alta qualidade!");
+      showToast("✨ Foto processada com sucesso!");
+      console.log("5 - Fechando editor");
       setIsCropperOpen(false);
       setEditingImageIndex(null);
       
@@ -630,8 +636,8 @@ export default function AdminModal({
         setPendingCropQueue([]);
       }
     } catch (err: any) {
-      console.error(err);
-      showToast(`Erro ao processar imagem: ${err.message || err}`);
+      console.error("Erro ao aplicar recorte:", err);
+      showToast(err.message || "Não foi possível processar a imagem.");
     } finally {
       setIsUploading(false);
     }
@@ -976,26 +982,45 @@ export default function AdminModal({
 
     setSaveLoading(true);
 
-    const finalImages = formImages.length > 0 ? formImages : (formImage ? [formImage] : []);
-    const mainImage = formImage || finalImages[0] || "https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=80";
-
-    const newProduct: Product = {
-      id: editingId || `prod-${Date.now()}`,
-      name: formName,
-      category: formCategory,
-      price: parseFloat(formPrice) || 0,
-      description: formDescription,
-      image: mainImage,
-      images: finalImages.length > 0 ? finalImages : [mainImage],
-      rating: parseFloat(formRating) || 5.0,
-      reviewsCount: parseInt(formReviewsCount, 10) || 1,
-      sizes: formSizes.split(",").map(s => s.trim()).filter(Boolean),
-      colors: formColors.split(",").map(c => c.trim()).filter(Boolean),
-      details: formDetails.split(",").map(d => d.trim()).filter(Boolean),
-      tag: formTag.trim() || undefined
-    };
-
     try {
+      showToast("Processando imagens e salvando produto...");
+      const productId = editingId || `prod-${Date.now()}`;
+
+      // Upload any newly cropped/added local base64/blob images first
+      let uploadedMainImage = formImage;
+      if (formImage && (formImage.startsWith("data:") || formImage.startsWith("blob:"))) {
+        uploadedMainImage = await uploadCroppedImage(formImage);
+      }
+
+      const uploadedFormImages: string[] = [];
+      for (const img of formImages) {
+        if (img.startsWith("data:") || img.startsWith("blob:")) {
+          const uploadedUrl = await uploadCroppedImage(img);
+          uploadedFormImages.push(uploadedUrl);
+        } else {
+          uploadedFormImages.push(img);
+        }
+      }
+
+      const finalImages = uploadedFormImages.length > 0 ? uploadedFormImages : (uploadedMainImage ? [uploadedMainImage] : []);
+      const mainImage = uploadedMainImage || finalImages[0] || "https://images.unsplash.com/photo-1618220179428-22790b461013?w=600&auto=format&fit=crop&q=80";
+
+      const newProduct: Product = {
+        id: productId,
+        name: formName,
+        category: formCategory,
+        price: parseFloat(formPrice) || 0,
+        description: formDescription,
+        image: mainImage,
+        images: finalImages.length > 0 ? finalImages : [mainImage],
+        rating: parseFloat(formRating) || 5.0,
+        reviewsCount: parseInt(formReviewsCount, 10) || 1,
+        sizes: formSizes.split(",").map(s => s.trim()).filter(Boolean),
+        colors: formColors.split(",").map(c => c.trim()).filter(Boolean),
+        details: formDetails.split(",").map(d => d.trim()).filter(Boolean),
+        tag: formTag.trim() || undefined
+      };
+
       if (isEditing && editingId) {
         await setDoc(doc(db, "produtos", editingId), newProduct);
         showToast("Produto atualizado com sucesso no Firestore!");
@@ -1008,7 +1033,7 @@ export default function AdminModal({
       console.error("Erro ao salvar produto no Firestore:", err);
       showToast(`Erro ao salvar produto: ${err.message || err.code || "Verifique as fotos"}`);
       try {
-        handleFirestoreError(err, isEditing ? OperationType.UPDATE : OperationType.CREATE, `produtos/${isEditing ? editingId : newProduct.id}`);
+        handleFirestoreError(err, isEditing ? OperationType.UPDATE : OperationType.CREATE, `produtos/${isEditing ? editingId : "new"}`);
       } catch (ignored) {}
     } finally {
       setSaveLoading(false);
