@@ -99,10 +99,7 @@ Por favor, seja preciso com os preços numéricos e preencha todos os campos do 
     try {
       response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
-        contents: [
-          imagePart,
-          { text: promptText }
-        ],
+        contents: { parts: [imagePart, { text: promptText }] },
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -146,10 +143,7 @@ Por favor, seja preciso com os preços numéricos e preencha todos os campos do 
       await new Promise(resolve => setTimeout(resolve, 300));
       response = await ai.models.generateContent({
         model: "gemini-flash-latest",
-        contents: [
-          imagePart,
-          { text: promptText }
-        ],
+        contents: { parts: [imagePart, { text: promptText }] },
         config: {
           responseMimeType: "application/json",
           responseSchema: {

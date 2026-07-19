@@ -1180,6 +1180,24 @@ export default function AdminModal({
                                 alt={`Foto ${index + 1}`} 
                                 className="w-full h-full object-cover"
                               />
+
+                              {/* Persistent Close (X) button in top right corner for easy deletion on mobile & desktop */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const updated = formImages.filter((_, i) => i !== index);
+                                  setFormImages(updated);
+                                  if (isMain) {
+                                    setFormImage(updated[0] || "");
+                                  }
+                                  showToast("Foto removida da galeria.");
+                                }}
+                                className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-stone-950/80 hover:bg-red-600 border border-stone-800 text-stone-300 hover:text-white flex items-center justify-center transition-all cursor-pointer z-30 shadow-md"
+                                title="Remover foto"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
                               
                               {/* Overlay for action buttons */}
                               <div className="absolute inset-0 bg-stone-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-1.5 z-10">
@@ -1204,22 +1222,6 @@ export default function AdminModal({
                                       Capa
                                     </span>
                                   )}
-
-                                  {/* Delete button */}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updated = formImages.filter((_, i) => i !== index);
-                                      setFormImages(updated);
-                                      if (isMain) {
-                                        setFormImage(updated[0] || "");
-                                      }
-                                      showToast("Foto removida da galeria.");
-                                    }}
-                                    className="p-1 rounded-md bg-stone-900 hover:bg-red-900 text-stone-400 hover:text-white transition-all cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
                                 </div>
 
                                 {/* Crop & Enhance buttons at the bottom of the hover overlay */}
@@ -1236,7 +1238,7 @@ export default function AdminModal({
                                     className="p-1 rounded-md bg-stone-900 hover:bg-gold-500 text-gold-400 hover:text-stone-950 border border-stone-800 transition-all cursor-pointer flex items-center justify-center"
                                     title="Recortar esta foto individualmente"
                                   >
-                                    <Crop className="w-3 h-3" />
+                                    <Crop className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     type="button"
@@ -1258,7 +1260,7 @@ export default function AdminModal({
                                     className="p-1 rounded-md bg-stone-900 hover:bg-purple-500 text-purple-400 hover:text-stone-950 border border-stone-800 transition-all cursor-pointer flex items-center justify-center"
                                     title="Melhorar qualidade HD desta foto individualmente"
                                   >
-                                    <Sparkles className="w-3 h-3 animate-pulse" />
+                                    <Sparkles className="w-3.5 h-3.5 animate-pulse" />
                                   </button>
                                 </div>
                               </div>
