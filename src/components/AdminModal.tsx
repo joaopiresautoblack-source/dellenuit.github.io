@@ -295,6 +295,7 @@ export default function AdminModal({
   const [pendingCropQueue, setPendingCropQueue] = useState<string[]>([]);
   const [replacingImageIndex, setReplacingImageIndex] = useState<number | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isDecodingImage, setIsDecodingImage] = useState<boolean>(false);
 
   // Image Enhancement States
   const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
@@ -469,6 +470,77 @@ export default function AdminModal({
     return data.url;
   };
 
+  // Helper to load, validate, and decode an image before opening the crop editor
+  const handleOpenCropperFor = async (imageUrl: string, index: number | null) => {
+    if (!imageUrl) {
+      showToast("Link ou arquivo de imagem inválido.");
+      return;
+    }
+    setIsDecodingImage(true);
+    showToast("Carregando imagem...");
+
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => {
+          if (typeof img.decode === "function") {
+            img.decode()
+              .then(() => resolve())
+              .catch((err) => {
+                console.warn("img.decode falhou, usando onload tradicional", err);
+                resolve();
+              });
+          } else {
+            resolve();
+          }
+        };
+        img.onerror = () => {
+          reject(new Error("Erro ao carregar o arquivo da imagem."));
+        };
+        img.src = imageUrl;
+      });
+
+      const naturalWidth = img.naturalWidth;
+      const naturalHeight = img.naturalHeight;
+
+      if (naturalWidth === 0 || naturalHeight === 0) {
+        throw new Error("Não foi possível obter as dimensões da imagem.");
+      }
+
+      // Calculate baseDimensions keeping aspect ratio to cover/contain the 280x350 viewport
+      const containerW = 280;
+      const containerH = 350;
+      const imageRatio = naturalWidth / naturalHeight;
+      const containerRatio = containerW / containerH; // 0.8
+
+      let width = containerW;
+      let height = containerH;
+
+      if (imageRatio > containerRatio) {
+        height = containerH;
+        width = containerH * imageRatio;
+      } else {
+        width = containerW;
+        height = containerW / imageRatio;
+      }
+
+      setBaseDimensions({ width, height });
+      setOriginalUncroppedImage(imageUrl);
+      setZoom(1);
+      setPosition({ x: 0, y: 0 });
+      setRotation(0);
+      setEditingImageIndex(index);
+      setIsCropperOpen(true);
+    } catch (err) {
+      console.error("Erro na decodificação da imagem:", err);
+      showToast("Não foi possível carregar esta imagem. Tente outra foto ou converta para JPEG/PNG.");
+    } finally {
+      setIsDecodingImage(false);
+    }
+  };
+
   // Apply visual cropping, render high-res file and save
   const handleApplyCrop = async () => {
     setIsUploading(true);
@@ -505,16 +577,11 @@ export default function AdminModal({
       setIsCropperOpen(false);
       setEditingImageIndex(null);
       
-      // Handle remaining items in queue sequentially
+      // Handle remaining items in queue sequentially using async loader
       if (pendingCropQueue.length > 1) {
         const nextQueue = pendingCropQueue.slice(1);
         setPendingCropQueue(nextQueue);
-        setOriginalUncroppedImage(nextQueue[0]);
-        setEditingImageIndex(-1);
-        setZoom(1);
-        setPosition({ x: 0, y: 0 });
-        setRotation(0);
-        setIsCropperOpen(true);
+        handleOpenCropperFor(nextQueue[0], -1);
       } else {
         setPendingCropQueue([]);
       }
@@ -532,12 +599,7 @@ export default function AdminModal({
     if (pendingCropQueue.length > 1) {
       const nextQueue = pendingCropQueue.slice(1);
       setPendingCropQueue(nextQueue);
-      setOriginalUncroppedImage(nextQueue[0]);
-      setEditingImageIndex(-1);
-      setZoom(1);
-      setPosition({ x: 0, y: 0 });
-      setRotation(0);
-      setIsCropperOpen(true);
+      handleOpenCropperFor(nextQueue[0], -1);
     } else {
       setPendingCropQueue([]);
     }
@@ -668,23 +730,11 @@ export default function AdminModal({
           // Replace mode: trigger cropping panel directly for this specific slot
           const targetIndex = replacingImageIndex;
           setReplacingImageIndex(null);
-          setEditingImageIndex(targetIndex);
-          setOriginalUncroppedImage(validUrls[0]);
-          
-          setZoom(1);
-          setPosition({ x: 0, y: 0 });
-          setRotation(0);
-          setIsCropperOpen(true);
+          handleOpenCropperFor(validUrls[0], targetIndex);
         } else {
           // Standard additions: Queue them up so the user can crop them one by one
           setPendingCropQueue(validUrls);
-          setEditingImageIndex(-1); // denotes a new gallery addition
-          setOriginalUncroppedImage(validUrls[0]);
-          
-          setZoom(1);
-          setPosition({ x: 0, y: 0 });
-          setRotation(0);
-          setIsCropperOpen(true);
+          handleOpenCropperFor(validUrls[0], -1);
         }
       }).catch((err) => {
         console.error("Erro ao ler arquivos de foto:", err);
@@ -1239,13 +1289,8 @@ export default function AdminModal({
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setEditingImageIndex(index);
                                       const orig = originalImages[imgUrl] || imgUrl;
-                                      setOriginalUncroppedImage(orig);
-                                      setZoom(1);
-                                      setPosition({ x: 0, y: 0 });
-                                      setRotation(0);
-                                      setIsCropperOpen(true);
+                                      handleOpenCropperFor(orig, index);
                                     }}
                                     className="p-1 rounded bg-stone-900 hover:bg-gold-500 text-gold-400 hover:text-stone-950 border border-stone-850 transition-all cursor-pointer flex items-center justify-center"
                                     title="Ajustar ou refazer o recorte"
@@ -1360,7 +1405,9 @@ export default function AdminModal({
                           <button
                             type="button"
                             onClick={() => {
-                              setIsCropperOpen(true);
+                              const orig = originalImages[formImage] || formImage;
+                              const idx = formImages.indexOf(formImage);
+                              handleOpenCropperFor(orig, idx !== -1 ? idx : null);
                             }}
                             className="px-3 py-1.5 rounded-xl bg-gold-500/10 hover:bg-gold-500/20 text-gold-400 border border-gold-500/20 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
                             title="Ajustar ou fazer um novo recorte na foto principal"
@@ -2445,6 +2492,18 @@ export default function AdminModal({
           <Lock className="w-3 h-3" />
           <span>Sessão protegida por criptografia local de ponta-a-ponta. Todas as alterações são salvas localmente.</span>
         </div>
+
+        {isDecodingImage && (
+          <div className="fixed inset-0 z-[110] bg-stone-950/85 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+            <div className="bg-stone-900 border border-gold-500/20 rounded-2xl p-6 max-w-sm w-full flex flex-col items-center text-center space-y-4 shadow-2xl">
+              <RefreshCw className="w-8 h-8 text-gold-500 animate-spin" />
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-stone-200">Carregando imagem...</p>
+                <p className="text-xs text-stone-400">Decodificando arquivo para o estúdio de enquadramento.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
