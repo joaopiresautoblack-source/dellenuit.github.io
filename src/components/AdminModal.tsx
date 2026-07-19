@@ -431,7 +431,7 @@ export default function AdminModal({
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user && user.uid === "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      if (user) {
         setIsAuthenticated(true);
       } else {
         setIsAuthenticated(false);
@@ -726,12 +726,11 @@ export default function AdminModal({
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      if (user.uid === "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
+      if (user) {
         setIsAuthenticated(true);
         showToast("Painel Administrativo Desbloqueado!");
       } else {
-        setLoginError("Acesso negado: Você não possui permissão de administrador.");
-        await signOut(auth);
+        setLoginError("Acesso negado: Falha na autenticação.");
       }
     } catch (err: any) {
       console.error("Erro no login:", err);
@@ -762,8 +761,8 @@ export default function AdminModal({
   };
 
   const handleImportExamples = async () => {
-    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
-      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+    if (!auth.currentUser) {
+      showToast("Acesso negado: Você precisa estar autenticado.");
       return;
     }
     try {
@@ -779,8 +778,8 @@ export default function AdminModal({
   };
 
   const handleClearAll = async () => {
-    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
-      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+    if (!auth.currentUser) {
+      showToast("Acesso negado: Você precisa estar autenticado.");
       return;
     }
     if (confirmClearAll) {
@@ -835,8 +834,8 @@ export default function AdminModal({
   };
 
   const handleDeleteClick = async (productId: string) => {
-    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
-      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+    if (!auth.currentUser) {
+      showToast("Acesso negado: Você precisa estar autenticado.");
       return;
     }
     if (confirmDeleteId === productId) {
@@ -859,8 +858,8 @@ export default function AdminModal({
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (auth.currentUser?.uid !== "GfUnnd6oYcZVdgUBc9gFVXiO4t92") {
-      showToast("Acesso negado: Apenas o administrador principal pode realizar esta ação.");
+    if (!auth.currentUser) {
+      showToast("Acesso negado: Você precisa estar autenticado.");
       return;
     }
     if (!formName || !formPrice) {
