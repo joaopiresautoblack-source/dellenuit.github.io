@@ -108,11 +108,11 @@ export default function Header({
             <button
               id="contact-btn"
               onClick={onOpenContact}
-              className="flex items-center space-x-1.5 bg-gold-500/10 hover:bg-gold-500/20 border border-gold-400/20 hover:border-gold-400/60 text-gold-200 px-3 py-1.5 sm:py-2 rounded-full text-xs font-semibold cursor-pointer transition-all"
+              className="flex items-center space-x-2 bg-gradient-to-r from-gold-500/20 via-gold-400/25 to-gold-600/20 hover:from-gold-500/30 hover:to-gold-600/35 border border-gold-400/50 hover:border-gold-300 text-gold-200 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold tracking-wider shadow-md hover:scale-102 cursor-pointer transition-all"
             >
-              <MessageCircle className="w-3.5 h-3.5 text-gold-400" />
+              <MessageCircle className="w-4 h-4 text-gold-300 fill-gold-400/20" />
               <span className="hidden sm:inline">Faça o seu Pedido</span>
-              <span className="sm:hidden">Pedido</span>
+              <span className="sm:hidden font-extrabold">Pedido</span>
             </button>
 
             {/* Shopping Cart Trigger */}

@@ -551,10 +551,6 @@ export default function AdminModal({
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const aiRefInputRef = useRef<HTMLInputElement>(null);
-
-  // Tab State
-  const [activeTab, setActiveTab] = useState<"catalog" | "ai">("catalog");
 
   // Action Confirmation States
   const [confirmClearAll, setConfirmClearAll] = useState<boolean>(false);
@@ -571,81 +567,6 @@ export default function AdminModal({
     });
     return () => unsubscribe();
   }, []);
-
-
-
-  // AI Studio states
-  const [aiPrompt, setAiPrompt] = useState<string>("");
-  const [aiMode, setAiMode] = useState<"generate" | "edit">("generate");
-  const [aiRefImage, setAiRefImage] = useState<string>("");
-  const [aiAspectRatio, setAiAspectRatio] = useState<string>("1:1");
-  const [aiResultImage, setAiResultImage] = useState<string>("");
-  const [aiLoading, setAiLoading] = useState<boolean>(false);
-  const [aiError, setAiError] = useState<string>("");
-
-  const handleAiRefChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 50 * 1024 * 1024) {
-        showToast("Por favor, selecione uma imagem menor que 50MB.");
-        return;
-      }
-      try {
-        showToast("Processando imagem de referência...");
-        const compressed = await resizeImage(file, 800);
-        setAiRefImage(compressed);
-        showToast("Imagem de referência carregada!");
-      } catch (err) {
-        console.error(err);
-        showToast("Erro ao processar imagem de referência.");
-      }
-    }
-  };
-
-  const handleGenerateAiImage = async () => {
-    if (!aiPrompt.trim()) {
-      showToast("Por favor, digite uma descrição (prompt) para a IA.");
-      return;
-    }
-    setAiLoading(true);
-    setAiError("");
-    try {
-      const response = await fetch("/api/ai/image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: aiPrompt,
-          image: aiMode === "edit" ? aiRefImage : undefined,
-          aspectRatio: aiAspectRatio,
-        }),
-      });
-
-      let data: any = {};
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        data = await response.json();
-      } else {
-        const text = await response.text();
-        const isHtml = text.trim().startsWith("<");
-        const cleanText = isHtml ? "Resposta inválida do servidor (HTML). Verifique se o servidor está ativo." : text;
-        throw new Error(cleanText || `Erro ${response.status} do servidor.`);
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || "Erro ao processar imagem.");
-      }
-
-      setAiResultImage(data.image);
-      showToast("Imagem gerada com sucesso pela Inteligência Artificial!");
-    } catch (err: any) {
-      console.error(err);
-      setAiError(err.message || "Não foi possível gerar a imagem. Verifique a chave da API do Gemini.");
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -1170,42 +1091,20 @@ export default function AdminModal({
             </form>
           </div>
         ) : (
-          /* Logged In Dashboard Content with Tabs */
+          /* Logged In Dashboard Content */
           <div className="flex-1 flex flex-col min-h-0 overflow-y-auto lg:overflow-hidden bg-stone-950/20">
-            {/* Tab Header Navigation */}
-            <div className="px-4 sm:px-6 py-1 bg-stone-950/40 border-b border-burgundy-900/40 flex items-center justify-between flex-wrap gap-2 shrink-0">
-              <div className="flex space-x-1 sm:space-x-4">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("catalog")}
-                  className={`py-3 px-3 sm:px-4 text-xs font-bold tracking-wider uppercase border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === "catalog"
-                      ? "border-gold-500 text-gold-300 bg-stone-900/20"
-                      : "border-transparent text-stone-400 hover:text-stone-200"
-                  }`}
-                >
-                  <Database className="w-3.5 h-3.5" />
-                  <span>Catálogo de Produtos</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("ai")}
-                  className={`py-3 px-3 sm:px-4 text-xs font-bold tracking-wider uppercase border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === "ai"
-                      ? "border-gold-500 text-gold-300 bg-stone-900/20"
-                      : "border-transparent text-stone-400 hover:text-stone-200"
-                  }`}
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
-                  <span>Estúdio de Imagem IA</span>
-                </button>
+            {/* Action Bar Header */}
+            <div className="px-4 sm:px-6 py-2 bg-stone-950/40 border-b border-burgundy-900/40 flex items-center justify-between flex-wrap gap-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-gold-400" />
+                <span className="text-xs font-bold tracking-wider uppercase text-gold-300">Catálogo de Produtos</span>
               </div>
 
               {/* Download Excel / CSV Spreadsheet Button */}
               <button
                 type="button"
                 onClick={handleExportSpreadsheet}
-                className="my-1 py-1.5 px-3 rounded-lg bg-emerald-950/80 hover:bg-emerald-900/90 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
+                className="py-1.5 px-3 rounded-lg bg-emerald-950/80 hover:bg-emerald-900/90 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
                 title="Baixar planilha Excel com todos os produtos e estoques"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
@@ -1214,8 +1113,7 @@ export default function AdminModal({
               </button>
             </div>
 
-            {activeTab === "catalog" ? (
-              <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row min-h-0">
+            <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row min-h-0">
                 {/* Left side: Register/Edit Form */}
                 <div className="w-full lg:w-1/2 p-4 sm:p-6 lg:border-r border-burgundy-900/40 space-y-4 overflow-y-auto">
                   <h3 className="text-xs font-bold uppercase tracking-widest text-gold-400 flex items-center gap-1">
@@ -1784,372 +1682,10 @@ export default function AdminModal({
                   )}
                 </div>
               </div>
-            ) : (
-              /* AI Image Studio Tab View */
-              <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row min-h-0 text-stone-200 animate-in fade-in duration-200">
-                
-                {/* Left Side: Parameters & Configuration */}
-                <div className="w-full lg:w-1/2 p-4 sm:p-6 lg:border-r border-burgundy-900/40 space-y-5 overflow-y-auto">
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-bold text-gold-300 font-display flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-gold-400 animate-pulse" />
-                      <span>Agente Criador de Imagem IA</span>
-                    </h3>
-                    <p className="text-[11px] text-stone-400">
-                      Gere fotos ultra-realistas ou edite imagens existentes com o poder do Gemini.
-                    </p>
-                  </div>
 
-                  {/* Mode Selector Toggle */}
-                  <div className="bg-stone-950 p-1 rounded-xl border border-stone-900 flex">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAiMode("generate");
-                        setAiError("");
-                      }}
-                      className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
-                        aiMode === "generate"
-                          ? "bg-gold-500 text-burgundy-950 shadow-md animate-in fade-in duration-200"
-                          : "text-stone-400 hover:text-stone-200"
-                      }`}
-                    >
-                      Nova Geração (Texto)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAiMode("edit");
-                        setAiError("");
-                      }}
-                      className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
-                        aiMode === "edit"
-                          ? "bg-gold-500 text-burgundy-950 shadow-md animate-in fade-in duration-200"
-                          : "text-stone-400 hover:text-stone-200"
-                      }`}
-                    >
-                      Edição com IA (Imagem + Texto)
-                    </button>
-                  </div>
 
-                  {/* Image to edit configuration (Only shown in Edit mode) */}
-                  {aiMode === "edit" && (
-                    <div className="space-y-3 bg-stone-950/40 p-4 rounded-xl border border-stone-900">
-                      <div className="flex justify-between items-center">
-                        <label className="block text-xs font-bold uppercase tracking-wider text-stone-400">
-                          Imagem de Referência
-                        </label>
-                        <span className="text-[9px] text-stone-500">Adicione uma foto base</span>
-                      </div>
 
-                      {/* Hidden file input for Reference Image */}
-                      <input 
-                        type="file"
-                        ref={aiRefInputRef}
-                        onChange={handleAiRefChange}
-                        accept="image/*"
-                        className="hidden"
-                      />
 
-                      {aiRefImage ? (
-                        <div className="flex items-center space-x-3 bg-stone-950 p-2.5 rounded-lg border border-gold-500/10">
-                          <img 
-                            src={aiRefImage} 
-                            alt="Referência" 
-                            className="w-12 h-12 object-cover rounded border border-stone-850 bg-stone-900"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <span className="block text-[9px] text-gold-400 uppercase tracking-widest font-bold">Base para Edição</span>
-                            <p className="text-[9px] text-stone-500 truncate mt-0.5">
-                              {aiRefImage.startsWith("data:") ? "Dispositivo local" : aiRefImage}
-                            </p>
-                          </div>
-                          <div className="flex space-x-1">
-                            <button
-                              type="button"
-                              onClick={() => aiRefInputRef.current?.click()}
-                              className="px-2 py-1 bg-stone-900 rounded text-[9px] font-bold text-stone-300 hover:text-gold-300 border border-stone-800 cursor-pointer"
-                            >
-                              Alterar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setAiRefImage("")}
-                              className="p-1 bg-stone-900 hover:bg-red-950/40 text-stone-400 hover:text-red-400 rounded border border-stone-800 cursor-pointer"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <button
-                            type="button"
-                            onClick={() => aiRefInputRef.current?.click()}
-                            className="w-full py-4 bg-stone-950 hover:bg-stone-900/40 border border-dashed border-stone-800 hover:border-gold-400/30 rounded-xl flex flex-col items-center justify-center space-y-1 transition-all cursor-pointer text-xs"
-                          >
-                            <Upload className="w-4 h-4 text-stone-400" />
-                            <span className="font-bold text-stone-300">Carregar foto do celular ou Windows Explorer</span>
-                          </button>
-
-                          {products.length > 0 && (
-                            <div className="space-y-1.5">
-                              <span className="block text-[10px] uppercase tracking-wider text-stone-500">Ou selecione de um produto da loja:</span>
-                              <div className="flex gap-2 overflow-x-auto pb-1 max-w-full">
-                                {products.slice(0, 6).map((p) => (
-                                  <button
-                                    key={`ai-select-ref-${p.id}`}
-                                    type="button"
-                                    onClick={() => {
-                                      setAiRefImage(p.image);
-                                      showToast(`Foto do produto "${p.name}" definida como referência!`);
-                                    }}
-                                    className="flex-shrink-0 w-10 h-10 rounded border border-stone-850 hover:border-gold-500/50 overflow-hidden relative cursor-pointer"
-                                    title={`Usar foto do produto: ${p.name}`}
-                                  >
-                                    <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Prompt Text Area */}
-                  <div className="space-y-1.5 text-xs">
-                    <label className="block text-stone-400 font-bold uppercase tracking-wider">
-                      {aiMode === "generate" ? "Descrição da Nova Imagem (Prompt) *" : "Instruções de Edição (Prompt) *"}
-                    </label>
-                    <textarea
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      placeholder={
-                        aiMode === "generate"
-                          ? "Ex: Foto luxuosa de estúdio profissional com uma lingerie fina de renda preta repousando artisticamente sobre lençóis de seda burgundy, iluminação dramática, alta definição..."
-                          : "Ex: Mude a cor da lingerie para vermelho carmim, aumente o contraste das sombras e coloque um fundo de estúdio profissional luxuoso."
-                      }
-                      rows={4}
-                      className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl p-3 text-base sm:text-xs text-stone-200 placeholder-stone-600 focus:outline-none resize-none leading-relaxed"
-                    />
-                  </div>
-
-                  {/* Aspect Ratio Selector (Only for creation) */}
-                  {aiMode === "generate" && (
-                    <div className="space-y-1.5 text-xs">
-                      <label className="block text-stone-400 font-bold uppercase tracking-wider">Proporção da Imagem</label>
-                      <div className="grid grid-cols-5 gap-1.5">
-                        {[
-                          { id: "1:1", label: "Quadrado", desc: "1:1" },
-                          { id: "4:3", label: "Retrato", desc: "4:3" },
-                          { id: "3:4", label: "Paisagem", desc: "3:4" },
-                          { id: "16:9", label: "Wide", desc: "16:9" },
-                          { id: "9:16", label: "Celular", desc: "9:16" },
-                        ].map((ratio) => (
-                          <button
-                            key={ratio.id}
-                            type="button"
-                            onClick={() => setAiAspectRatio(ratio.id)}
-                            className={`py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider border cursor-pointer transition-all ${
-                              aiAspectRatio === ratio.id
-                                ? "bg-gold-500 border-gold-400 text-burgundy-950 font-extrabold"
-                                : "bg-stone-950 border-stone-850 text-stone-400 hover:border-stone-800 hover:text-stone-200"
-                            }`}
-                          >
-                            <span className="block">{ratio.label}</span>
-                            <span className="block text-[8px] opacity-70">({ratio.desc})</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Prompt Quick Ideas (Templates) */}
-                  <div className="space-y-2">
-                    <span className="block text-[10px] uppercase tracking-wider text-stone-500">Fórmulas e Ideias Rápidas para Lingerie:</span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAiPrompt("Foto de estúdio de alta definição com uma lingerie luxuosa de renda fina e cetim vermelho sensual, deitada sobre mármore preto polido com luzes douradas suaves e reflexos românticos.");
-                          showToast("Prompt de Renda Vermelha inserido!");
-                        }}
-                        className="p-2 bg-stone-950 hover:bg-stone-900 border border-stone-900 hover:border-gold-400/30 text-[10px] text-stone-300 text-left rounded-xl transition-all cursor-pointer"
-                      >
-                        <span className="block font-bold text-gold-400 mb-0.5">❤️ Renda Vermelha Premium</span>
-                        <span className="text-[9px] text-stone-500 line-clamp-1">Lingerie luxuosa sobre mármore preto polido...</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAiPrompt("Estilo boudoir elegante e sofisticado, lingerie luxuosa de seda branca e renda delicada drapeada romanticamente em uma cadeira clássica dourada, fundo desfocado com iluminação âmbar acolhedora.");
-                          showToast("Prompt de Boudoir Branco inserido!");
-                        }}
-                        className="p-2 bg-stone-950 hover:bg-stone-900 border border-stone-900 hover:border-gold-400/30 text-[10px] text-stone-300 text-left rounded-xl transition-all cursor-pointer"
-                      >
-                        <span className="block font-bold text-gold-400 mb-0.5">🤍 Boudoir Romântico Branco</span>
-                        <span className="text-[9px] text-stone-500 line-clamp-1">Estilo boudoir clássico e misterioso...</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAiPrompt("Design minimalista moderno, um frasco elegante de perfume íntimo e cosmético ao lado de sabonete refinado e pétalas de rosa fresca, gotas de orvalho delicadas, iluminação natural suave de fim de tarde.");
-                          showToast("Prompt de Cosmético inserido!");
-                        }}
-                        className="p-2 bg-stone-950 hover:bg-stone-900 border border-stone-900 hover:border-gold-400/30 text-[10px] text-stone-300 text-left rounded-xl transition-all cursor-pointer"
-                      >
-                        <span className="block font-bold text-gold-400 mb-0.5">🧴 Cosmético & Sexshop Luxo</span>
-                        <span className="text-[9px] text-stone-500 line-clamp-1">Design minimalista moderno, frasco elegante...</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAiPrompt("Foto publicitária de luxo focado nos detalhes da costura e da renda sofisticada delicada de um sutiã preto premium, fundo neutro em tons de cinza suave e iluminação profissional focada de estúdio.");
-                          showToast("Prompt de Renda Sofisticada inserido!");
-                        }}
-                        className="p-2 bg-stone-950 hover:bg-stone-900 border border-stone-900 hover:border-gold-400/30 text-[10px] text-stone-300 text-left rounded-xl transition-all cursor-pointer"
-                      >
-                        <span className="block font-bold text-gold-400 mb-0.5">🖤 Close-up Renda Sofisticada</span>
-                        <span className="text-[9px] text-stone-500 line-clamp-1">Foto publicitária focada nos detalhes da costura...</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Submit Trigger Button */}
-                  <button
-                    type="button"
-                    disabled={aiLoading}
-                    onClick={handleGenerateAiImage}
-                    className="w-full bg-gradient-to-r from-gold-500 to-burgundy-600 hover:from-gold-400 hover:to-burgundy-500 disabled:from-stone-850 disabled:to-stone-900 disabled:text-stone-500 font-extrabold uppercase tracking-widest text-[11px] py-4 rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-2 shadow-lg"
-                  >
-                    {aiLoading ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Processando Imagem com IA...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-4 h-4 text-burgundy-950" />
-                        <span>
-                          {aiMode === "generate" ? "Gerar Nova Imagem com IA" : "Editar Imagem com IA"}
-                        </span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Right Side: Visualizer Canvas & Outputs */}
-                <div className="w-full lg:w-1/2 p-6 flex flex-col space-y-4 lg:overflow-y-auto bg-stone-950/20 items-center justify-center relative min-h-[45vh] lg:min-h-0">
-                  {aiLoading ? (
-                    <div className="flex flex-col items-center justify-center p-12 text-center space-y-6 bg-stone-950/40 rounded-3xl border border-gold-500/10 max-w-sm w-full shadow-2xl animate-pulse">
-                      <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-gold-500 to-burgundy-900/30 flex items-center justify-center text-gold-300 relative">
-                        <Sparkles className="w-8 h-8 animate-spin duration-3000" />
-                        <div className="absolute inset-0 rounded-full border border-gold-400/40 animate-ping opacity-30"></div>
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-bold text-gold-300 uppercase tracking-widest font-display">Estúdio Criativo Gemini</h4>
-                        <p className="text-[11px] text-stone-400 leading-relaxed max-w-[250px]">
-                          Desenhando texturas de renda, ajustando iluminação boudoir e processando detalhes em alta resolução...
-                        </p>
-                      </div>
-                    </div>
-                  ) : aiError ? (
-                    <div className="flex flex-col items-center justify-center p-8 text-center space-y-4 bg-red-950/20 rounded-3xl border border-red-900/40 max-w-md">
-                      <div className="w-12 h-12 rounded-full bg-red-900/10 flex items-center justify-center text-red-400">
-                        <X className="w-5 h-5" />
-                      </div>
-                      <div className="space-y-1">
-                        <h4 className="text-xs font-bold text-red-400 uppercase tracking-widest">Falha na Operação</h4>
-                        <p className="text-[11px] text-stone-400 leading-relaxed">
-                          {aiError}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleGenerateAiImage}
-                        className="text-[10px] uppercase tracking-wider font-extrabold text-gold-400 hover:text-gold-300 bg-stone-900 border border-stone-800 px-4 py-2 rounded-lg cursor-pointer transition-all"
-                      >
-                        Tentar Novamente
-                      </button>
-                    </div>
-                  ) : aiResultImage ? (
-                    <div className="space-y-4 w-full max-w-sm">
-                      <div className="space-y-1 text-center">
-                        <span className="block text-[9px] text-gold-400 font-extrabold uppercase tracking-widest">Sua Imagem Pronta</span>
-                        <p className="text-[10px] text-stone-500 font-medium">Desenvolvida com Inteligência Artificial</p>
-                      </div>
-
-                      {/* Resulting Image Container with premium frame */}
-                      <div className="bg-stone-950 p-2.5 rounded-3xl border border-gold-500/15 overflow-hidden shadow-2xl relative group">
-                        <img
-                          src={aiResultImage}
-                          alt="AI Studio Result"
-                          className="w-full h-auto aspect-square object-cover rounded-2xl border border-stone-900"
-                        />
-                        <div className="absolute top-4 right-4 bg-stone-950/80 backdrop-blur-md text-[9px] font-bold text-gold-400 px-2 py-1 rounded-full uppercase tracking-wider border border-gold-400/20">
-                          Estúdio IA
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setFormImage(aiResultImage);
-                            setActiveTab("catalog");
-                            showToast("Imagem da IA foi aplicada ao formulário do produto!");
-                          }}
-                          className="w-full bg-gold-500 hover:bg-gold-400 text-burgundy-950 font-extrabold uppercase tracking-widest text-[10px] py-3 rounded-xl transition-all cursor-pointer text-center flex items-center justify-center space-x-1.5"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Usar no Cadastro de Produto</span>
-                        </button>
-
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(aiResultImage);
-                              showToast("URL de imagem (Base64) copiada para a área de transferência!");
-                            }}
-                            className="flex-1 bg-stone-900 hover:bg-stone-850 border border-stone-800 text-stone-300 text-[10px] font-extrabold uppercase tracking-wider py-2 rounded-lg transition-all cursor-pointer text-center"
-                          >
-                            Copiar Link
-                          </button>
-                          <a
-                            href={aiResultImage}
-                            download="bellenuit-ia-studio.png"
-                            className="flex-1 bg-stone-900 hover:bg-stone-850 border border-stone-800 text-stone-300 text-[10px] font-extrabold uppercase tracking-wider py-2 rounded-lg transition-all text-center"
-                          >
-                            Baixar Imagem
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Initial Canvas Placeholder state */
-                    <div className="flex flex-col items-center justify-center p-8 text-center space-y-4 max-w-sm bg-stone-950/35 border border-stone-900 rounded-3xl py-12">
-                      <div className="w-16 h-16 rounded-full bg-stone-900/60 border border-stone-850 flex items-center justify-center text-stone-500">
-                        <ImageIcon className="w-7 h-7" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <h4 className="text-xs font-bold text-stone-300 uppercase tracking-widest">Visualizador do Estúdio</h4>
-                        <p className="text-[11px] text-stone-500 leading-relaxed">
-                          Configure as opções e crie ou edite imagens. Elas serão renderizadas aqui em tempo real.
-                        </p>
-                      </div>
-                      <div className="bg-stone-900/40 px-3 py-1.5 rounded-lg border border-stone-850/60 text-[9px] uppercase tracking-wider text-stone-400">
-                        Aguardando Instruções
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-              </div>
-            )}
           </div>
         )}
 

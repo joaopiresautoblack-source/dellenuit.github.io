@@ -249,12 +249,12 @@ export default function App() {
             </div>
 
             {/* Core Action triggers */}
-            <div className="flex flex-col sm:flex-row justify-center items-center gap-2 pt-1">
+            <div className="flex flex-col sm:flex-row justify-center items-center gap-2 pt-2">
               <button
                 onClick={() => setIsContactOpen(true)}
-                className="w-full sm:w-auto bg-gradient-to-r from-gold-500 via-gold-300 to-gold-600 hover:from-gold-400 hover:to-gold-500 text-burgundy-950 font-extrabold uppercase tracking-[0.2em] text-xs py-2.5 px-8 rounded-full shadow-lg hover:scale-102 cursor-pointer transition-all flex items-center justify-center space-x-2 border border-gold-300/30"
+                className="w-full sm:w-auto bg-gradient-to-r from-gold-500 via-gold-300 to-gold-600 hover:from-gold-400 hover:to-gold-500 text-burgundy-950 font-black uppercase tracking-[0.2em] text-sm sm:text-base py-3.5 sm:py-4 px-10 sm:px-14 rounded-full shadow-2xl hover:scale-105 cursor-pointer transition-all flex items-center justify-center space-x-2.5 border-2 border-gold-300/60"
               >
-                <MessageCircle className="w-4 h-4 text-burgundy-950 fill-burgundy-950/10" />
+                <MessageCircle className="w-5 h-5 text-burgundy-950 fill-burgundy-950/20" />
                 <span>Faça o seu Pedido</span>
               </button>
             </div>
