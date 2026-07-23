@@ -1,5 +1,5 @@
 import React from "react";
-import { Star, ShoppingCart, Heart } from "lucide-react";
+import { Star, ShoppingCart, Heart, Flame } from "lucide-react";
 import { Product } from "../types";
 
 interface ProductCardProps {
@@ -40,6 +40,14 @@ export default function ProductCard({
         >
           <Heart className={`w-4 h-4 ${isFavorite ? "fill-rose-500 text-rose-500" : ""}`} />
         </button>
+      )}
+
+      {/* Últimas Unidades Badge */}
+      {product.isLastUnits && (
+        <div className="absolute top-3 left-3 z-10 px-2.5 py-1 rounded-full bg-amber-500/90 text-stone-950 font-extrabold text-[9px] uppercase tracking-wider shadow-lg backdrop-blur-xs flex items-center gap-1 border border-amber-300/50">
+          <Flame className="w-3 h-3 fill-stone-950" />
+          <span>Últimas Unidades</span>
+        </div>
       )}
 
       {/* Product Image wrapper */}

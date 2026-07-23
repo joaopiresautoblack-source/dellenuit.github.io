@@ -223,71 +223,71 @@ export default function App() {
 
       {/* Hero / Banner Section (Only shown when category is "Tudo" and search is empty) */}
       {activeCategory === "Tudo" && !searchTerm && (
-        <section className="relative overflow-hidden bg-radial from-burgundy-900/40 via-stone-950 to-stone-950 py-20 sm:py-28 border-b border-gold-600/10">
+        <section className="relative overflow-hidden bg-radial from-burgundy-900/40 via-stone-950 to-stone-950 py-5 sm:py-7 border-b border-gold-600/10">
           {/* Subtle Ambient Background Ornaments */}
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-burgundy-800/15 rounded-full filter blur-3xl pointer-events-none"></div>
           <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-gold-600/5 rounded-full filter blur-3xl pointer-events-none"></div>
 
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-8">
-            <div className="space-y-5 max-w-3xl mx-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center space-y-3">
+            <div className="space-y-2 max-w-2xl mx-auto">
               {/* Premium Floating Badge */}
-              <div className="inline-flex items-center space-x-1.5 bg-gold-500/10 border border-gold-400/20 text-gold-200 px-4 py-1.5 rounded-full text-[10px] uppercase tracking-[0.2em] font-semibold">
-                <Flame className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
+              <div className="inline-flex items-center space-x-1.5 bg-gold-500/10 border border-gold-400/20 text-gold-200 px-3 py-1 rounded-full text-[9px] uppercase tracking-[0.2em] font-semibold">
+                <Flame className="w-3 h-3 text-gold-400 animate-pulse" />
                 <span>Alta Lingerie & Cosmética Sensorial Premium</span>
               </div>
               
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-medium tracking-wide text-stone-100 font-display leading-tight">
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-medium tracking-wide text-stone-100 font-display leading-tight">
                 Elegância que desperta os{" "}
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-gold-100 via-gold-300 to-gold-500 italic">
                   sentidos
                 </span>
               </h1>
               
-              <p className="text-sm sm:text-base text-stone-400 leading-relaxed max-w-2xl mx-auto font-sans font-light">
-                Descubra uma curadoria exclusiva de lingeries luxuosas e sensuais, moda noite refinada e tecnologia íntima silenciosa de alto bem-estar. Compre com entrega 100% segura, discreta e confidencial.
+              <p className="text-xs sm:text-sm text-stone-400 leading-relaxed max-w-xl mx-auto font-sans font-light">
+                Descubra uma curadoria exclusiva de lingeries luxuosas e sensuais, moda noite refinada e tecnologia íntima. Entrega 100% segura, discreta e confidencial.
               </p>
             </div>
 
             {/* Core Action triggers */}
-            <div className="flex flex-col sm:flex-row justify-center items-center gap-3 pt-4">
+            <div className="flex flex-col sm:flex-row justify-center items-center gap-2 pt-1">
               <button
                 onClick={() => setIsContactOpen(true)}
-                className="w-full sm:w-auto bg-gradient-to-r from-gold-500 via-gold-300 to-gold-600 hover:from-gold-400 hover:to-gold-500 text-burgundy-950 font-extrabold uppercase tracking-[0.2em] text-xs py-4 px-12 rounded-full shadow-xl hover:scale-102 cursor-pointer transition-all flex items-center justify-center space-x-2.5 border border-gold-300/30"
+                className="w-full sm:w-auto bg-gradient-to-r from-gold-500 via-gold-300 to-gold-600 hover:from-gold-400 hover:to-gold-500 text-burgundy-950 font-extrabold uppercase tracking-[0.2em] text-xs py-2.5 px-8 rounded-full shadow-lg hover:scale-102 cursor-pointer transition-all flex items-center justify-center space-x-2 border border-gold-300/30"
               >
-                <MessageCircle className="w-4.5 h-4.5 text-burgundy-950 fill-burgundy-950/10" />
-                <span>Fale com a Loja</span>
+                <MessageCircle className="w-4 h-4 text-burgundy-950 fill-burgundy-950/10" />
+                <span>Faça o seu Pedido</span>
               </button>
             </div>
 
             {/* Quick trust metrics row */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl mx-auto pt-12 border-t border-gold-600/10">
-              <div className="flex items-center space-x-3 text-left">
-                <div className="p-2.5 bg-burgundy-950/40 rounded-xl border border-gold-600/15">
-                  <ShieldCheck className="w-5 h-5 text-gold-400" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto pt-3 border-t border-gold-600/10">
+              <div className="flex items-center space-x-2.5 text-left justify-center sm:justify-start">
+                <div className="p-1.5 bg-burgundy-950/40 rounded-lg border border-gold-600/15">
+                  <ShieldCheck className="w-4 h-4 text-gold-400" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-stone-200 uppercase tracking-wide">Embalagem Neutra</h4>
-                  <p className="text-[10px] text-stone-500 mt-0.5">Sem logotipo ou referências externas.</p>
+                  <h4 className="text-[11px] font-bold text-stone-200 uppercase tracking-wide">Embalagem Neutra</h4>
+                  <p className="text-[9px] text-stone-500">Sem logotipo ou referências externas.</p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 text-left">
-                <div className="p-2.5 bg-burgundy-950/40 rounded-xl border border-gold-600/15">
-                  <Truck className="w-5 h-5 text-gold-400" />
+              <div className="flex items-center space-x-2.5 text-left justify-center sm:justify-start">
+                <div className="p-1.5 bg-burgundy-950/40 rounded-lg border border-gold-600/15">
+                  <Truck className="w-4 h-4 text-gold-400" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-stone-200 uppercase tracking-wide">Frete Expresso</h4>
-                  <p className="text-[10px] text-stone-500 mt-0.5">Recebimento no conforto de sua casa.</p>
+                  <h4 className="text-[11px] font-bold text-stone-200 uppercase tracking-wide">Frete Expresso</h4>
+                  <p className="text-[9px] text-stone-500">Recebimento no conforto de sua casa.</p>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-3 text-left">
-                <div className="p-2.5 bg-burgundy-950/40 rounded-xl border border-gold-600/15">
-                  <Lock className="w-5 h-5 text-gold-400" />
+              <div className="flex items-center space-x-2.5 text-left justify-center sm:justify-start">
+                <div className="p-1.5 bg-burgundy-950/40 rounded-lg border border-gold-600/15">
+                  <Lock className="w-4 h-4 text-gold-400" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-stone-200 uppercase tracking-wide">Teclado de Pânico</h4>
-                  <p className="text-[10px] text-stone-500 mt-0.5">Modo Discreto com um clique para sua privacidade.</p>
+                  <h4 className="text-[11px] font-bold text-stone-200 uppercase tracking-wide">Tecla de Pânico</h4>
+                  <p className="text-[9px] text-stone-500">Modo Discreto em 1 clique.</p>
                 </div>
               </div>
             </div>
@@ -297,7 +297,7 @@ export default function App() {
       )}
 
       {/* Main Catalog View Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full space-y-8">
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 w-full space-y-4">
         
         {/* Title indicating what is active */}
         <div className="flex justify-between items-center pb-4 border-b border-gold-600/10">

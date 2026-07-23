@@ -104,15 +104,15 @@ export default function Header({
               <span className="bg-red-700 text-white text-[9px] px-1.5 py-0.2 rounded-md font-mono tracking-tighter">Pânico</span>
             </button>
 
-            {/* Fale com a Loja Button */}
+            {/* Faça o seu Pedido Button */}
             <button
               id="contact-btn"
               onClick={onOpenContact}
               className="flex items-center space-x-1.5 bg-gold-500/10 hover:bg-gold-500/20 border border-gold-400/20 hover:border-gold-400/60 text-gold-200 px-3 py-1.5 sm:py-2 rounded-full text-xs font-semibold cursor-pointer transition-all"
             >
               <MessageCircle className="w-3.5 h-3.5 text-gold-400" />
-              <span className="hidden sm:inline">Fale com a Loja</span>
-              <span className="sm:hidden">Contato</span>
+              <span className="hidden sm:inline">Faça o seu Pedido</span>
+              <span className="sm:hidden">Pedido</span>
             </button>
 
             {/* Shopping Cart Trigger */}

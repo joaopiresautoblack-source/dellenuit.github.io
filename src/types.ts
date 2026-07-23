@@ -12,6 +12,8 @@ export interface Product {
   colors: string[];
   details: string[];
   tag?: string;
+  isLastUnits?: boolean;
+  stockQuantity?: number;
 }
 
 export interface CartItem {

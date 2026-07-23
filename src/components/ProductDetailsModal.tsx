@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Star, Check, ShieldCheck, Heart, ShoppingBag, ArrowLeft, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Star, Check, ShieldCheck, Heart, ShoppingBag, ArrowLeft, RefreshCw, ChevronLeft, ChevronRight, Flame } from "lucide-react";
 import { Product } from "../types";
 
 interface ProductDetailsModalProps {
@@ -239,7 +239,15 @@ export default function ProductDetailsModal({
               
               {/* Product Header Info */}
               <div className="space-y-2">
-                <span className="text-xs font-bold uppercase tracking-widest text-amber-500">{product.category}</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold uppercase tracking-widest text-amber-500">{product.category}</span>
+                  {product.isLastUnits && (
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-full border border-amber-500/30 flex items-center gap-1">
+                      <Flame className="w-3 h-3 text-amber-400 fill-amber-400/20" />
+                      Últimas Unidades
+                    </span>
+                  )}
+                </div>
                 <h2 className="text-xl sm:text-2xl font-bold text-stone-100 pr-8">{product.name}</h2>
                 
                 {/* Rating & reviews */}

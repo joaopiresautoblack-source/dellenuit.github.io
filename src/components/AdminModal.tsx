@@ -19,7 +19,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Save,
-  Check
+  Check,
+  Flame,
+  FileSpreadsheet
 } from "lucide-react";
 import { Product } from "../types";
 
@@ -143,6 +145,8 @@ export default function AdminModal({
   const [formColors, setFormColors] = useState<string>("");
   const [formDetails, setFormDetails] = useState<string>("");
   const [formTag, setFormTag] = useState<string>("");
+  const [formIsLastUnits, setFormIsLastUnits] = useState<boolean>(false);
+  const [formStockQuantity, setFormStockQuantity] = useState<string>("");
   const [formRating, setFormRating] = useState<string>("5.0");
   const [formReviewsCount, setFormReviewsCount] = useState<string>("1");
   const [saveLoading, setSaveLoading] = useState<boolean>(false);
@@ -784,6 +788,8 @@ export default function AdminModal({
     setFormColors("");
     setFormDetails("");
     setFormTag("");
+    setFormIsLastUnits(false);
+    setFormStockQuantity("");
     setFormRating("5.0");
     setFormReviewsCount("1");
   };
@@ -801,8 +807,72 @@ export default function AdminModal({
     setFormColors(product.colors.join(", "));
     setFormDetails(product.details.join(", "));
     setFormTag(product.tag || "");
+    setFormIsLastUnits(!!product.isLastUnits);
+    setFormStockQuantity(product.stockQuantity !== undefined ? product.stockQuantity.toString() : "");
     setFormRating((product.rating ?? 5.0).toString());
     setFormReviewsCount((product.reviewsCount ?? 1).toString());
+  };
+
+  const handleExportSpreadsheet = () => {
+    if (!products || products.length === 0) {
+      showToast("Nenhum produto cadastrado para exportar.");
+      return;
+    }
+
+    const headers = [
+      "ID",
+      "Nome do Produto",
+      "Categoria",
+      "Preço (R$)",
+      "Qtd em Estoque",
+      "Destaque Últimas Unidades",
+      "Tamanhos",
+      "Cores",
+      "Avaliação",
+      "Nº Avaliações",
+      "Destaque (Tag)",
+      "Descrição",
+      "URL Imagem Principal"
+    ];
+
+    const escapeCsv = (val: any) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = products.map((p) => [
+      escapeCsv(p.id),
+      escapeCsv(p.name),
+      escapeCsv(p.category),
+      escapeCsv(p.price ? p.price.toFixed(2).replace(".", ",") : "0,00"),
+      escapeCsv(p.stockQuantity ?? 0),
+      escapeCsv(p.isLastUnits ? "Sim" : "Não"),
+      escapeCsv(p.sizes ? p.sizes.join(", ") : ""),
+      escapeCsv(p.colors ? p.colors.join(", ") : ""),
+      escapeCsv(p.rating ?? 5.0),
+      escapeCsv(p.reviewsCount ?? 0),
+      escapeCsv(p.tag || ""),
+      escapeCsv(p.description || ""),
+      escapeCsv(p.image || "")
+    ]);
+
+    const csvContent =
+      "\uFEFF" +
+      [headers.join(";"), ...rows.map((row) => row.join(";"))].join("\r\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.setAttribute("download", `planilha_produtos_bellenuit_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast("Planilha de produtos exportada com sucesso!");
   };
 
   const handleDeleteClick = async (productId: string) => {
@@ -934,6 +1004,8 @@ export default function AdminModal({
         reviewsCount: parseInt(formReviewsCount, 10) || 1,
         details: formDetails ? formDetails.split(",").map(d => d.trim()).filter(Boolean) : [],
         tag: formTag.trim() || "",
+        isLastUnits: formIsLastUnits,
+        stockQuantity: formStockQuantity.trim() !== "" ? parseInt(formStockQuantity, 10) || 0 : 0,
         createdAt: serverTimestamp()
       };
 
@@ -1017,8 +1089,8 @@ export default function AdminModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/80 backdrop-blur-sm flex items-center justify-center sm:p-4 p-0">
-      <div className="relative bg-burgundy-950 border-0 sm:border border-gold-600/25 rounded-none sm:rounded-3xl w-full max-w-4xl min-h-screen sm:min-h-0 h-auto sm:h-auto sm:max-h-[90vh] flex flex-col text-stone-100 shadow-2xl overflow-y-auto sm:overflow-hidden animate-in fade-in duration-250">
+    <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-sm flex items-center justify-center sm:p-4 p-0">
+      <div className="relative bg-burgundy-950 border-0 sm:border border-gold-600/25 rounded-none sm:rounded-3xl w-full max-w-4xl h-[100dvh] sm:h-[90vh] flex flex-col text-stone-100 shadow-2xl overflow-hidden animate-in fade-in duration-250">
         
         {/* Header */}
         <div className="p-6 border-b border-burgundy-900/60 flex justify-between items-center bg-stone-950/45">
@@ -1099,39 +1171,53 @@ export default function AdminModal({
           </div>
         ) : (
           /* Logged In Dashboard Content with Tabs */
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-stone-950/20">
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto lg:overflow-hidden bg-stone-950/20">
             {/* Tab Header Navigation */}
-            <div className="px-6 py-1 bg-stone-950/40 border-b border-burgundy-900/40 flex space-x-1 sm:space-x-4">
+            <div className="px-4 sm:px-6 py-1 bg-stone-950/40 border-b border-burgundy-900/40 flex items-center justify-between flex-wrap gap-2 shrink-0">
+              <div className="flex space-x-1 sm:space-x-4">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("catalog")}
+                  className={`py-3 px-3 sm:px-4 text-xs font-bold tracking-wider uppercase border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === "catalog"
+                      ? "border-gold-500 text-gold-300 bg-stone-900/20"
+                      : "border-transparent text-stone-400 hover:text-stone-200"
+                  }`}
+                >
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Catálogo de Produtos</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("ai")}
+                  className={`py-3 px-3 sm:px-4 text-xs font-bold tracking-wider uppercase border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === "ai"
+                      ? "border-gold-500 text-gold-300 bg-stone-900/20"
+                      : "border-transparent text-stone-400 hover:text-stone-200"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
+                  <span>Estúdio de Imagem IA</span>
+                </button>
+              </div>
+
+              {/* Download Excel / CSV Spreadsheet Button */}
               <button
                 type="button"
-                onClick={() => setActiveTab("catalog")}
-                className={`py-3 px-4 text-xs font-bold tracking-wider uppercase border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeTab === "catalog"
-                    ? "border-gold-500 text-gold-300 bg-stone-900/20"
-                    : "border-transparent text-stone-400 hover:text-stone-200"
-                }`}
+                onClick={handleExportSpreadsheet}
+                className="my-1 py-1.5 px-3 rounded-lg bg-emerald-950/80 hover:bg-emerald-900/90 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
+                title="Baixar planilha Excel com todos os produtos e estoques"
               >
-                <Database className="w-3.5 h-3.5" />
-                <span>Catálogo de Produtos</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("ai")}
-                className={`py-3 px-4 text-xs font-bold tracking-wider uppercase border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-                  activeTab === "ai"
-                    ? "border-gold-500 text-gold-300 bg-stone-900/20"
-                    : "border-transparent text-stone-400 hover:text-stone-200"
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 text-gold-400 animate-pulse" />
-                <span>Estúdio de Imagem IA</span>
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span className="hidden sm:inline">Gerar Planilha (Excel/CSV)</span>
+                <span className="sm:hidden">Planilha</span>
               </button>
             </div>
 
             {activeTab === "catalog" ? (
               <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row min-h-0">
                 {/* Left side: Register/Edit Form */}
-                <div className="w-full lg:w-1/2 p-6 lg:border-r border-burgundy-900/40 space-y-4 lg:overflow-y-auto">
+                <div className="w-full lg:w-1/2 p-4 sm:p-6 lg:border-r border-burgundy-900/40 space-y-4 overflow-y-auto">
                   <h3 className="text-xs font-bold uppercase tracking-widest text-gold-400 flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>{isEditing ? "Editar Produto" : "Cadastrar Novo Produto"}</span>
@@ -1151,8 +1237,8 @@ export default function AdminModal({
                       />
                     </div>
 
-                    {/* Preço & Categoria */}
-                    <div className="grid grid-cols-2 gap-3">
+                    {/* Preço, Categoria & Estoque */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="space-y-1">
                         <label className="block text-stone-400 font-medium">Preço (R$) *</label>
                         <input 
@@ -1175,6 +1261,20 @@ export default function AdminModal({
                           <option value="Lingerie">Lingerie</option>
                           <option value="Sex Shop">Sex Shop</option>
                         </select>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-stone-400 font-medium">Qtd em Estoque</label>
+                          <span className="text-[9px] text-amber-400 font-bold uppercase">Adm</span>
+                        </div>
+                        <input 
+                          type="number"
+                          min="0"
+                          placeholder="Ex: 10"
+                          value={formStockQuantity}
+                          onChange={(e) => setFormStockQuantity(e.target.value)}
+                          className="w-full bg-stone-950 border border-stone-850 focus:border-gold-500/50 rounded-xl px-3 py-2.5 text-base sm:text-xs text-stone-200 focus:outline-none"
+                        />
                       </div>
                     </div>
 
@@ -1515,6 +1615,27 @@ export default function AdminModal({
                       </div>
                     </div>
 
+                    {/* Destaque Últimas Unidades Toggle */}
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setFormIsLastUnits(!formIsLastUnits)}
+                        className={`w-full py-2.5 px-3.5 rounded-xl border text-xs font-bold uppercase tracking-wider flex items-center justify-between transition-all cursor-pointer ${
+                          formIsLastUnits
+                            ? "bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-md shadow-amber-500/10"
+                            : "bg-stone-950 border-stone-850 text-stone-400 hover:text-stone-300 hover:border-stone-700"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Flame className={`w-4 h-4 ${formIsLastUnits ? "text-amber-400 fill-amber-400 animate-pulse" : "text-stone-500"}`} />
+                          <span>Destacar como "Últimas Unidades"</span>
+                        </div>
+                        <div className={`w-9 h-5 rounded-full transition-colors relative flex items-center p-0.5 ${formIsLastUnits ? "bg-amber-500" : "bg-stone-800"}`}>
+                          <div className={`w-4 h-4 rounded-full bg-stone-950 transition-transform ${formIsLastUnits ? "translate-x-4" : "translate-x-0"}`} />
+                        </div>
+                      </button>
+                    </div>
+
                     {/* Form Buttons */}
                     <div className="flex space-x-2 pt-2">
                       <button
@@ -1560,7 +1681,7 @@ export default function AdminModal({
                 </div>
 
                 {/* Right side: Catalog List */}
-                <div className="w-full lg:w-1/2 p-6 flex flex-col space-y-4 lg:overflow-y-auto bg-stone-950/20">
+                <div className="w-full lg:w-1/2 p-4 sm:p-6 flex flex-col space-y-4 overflow-y-auto bg-stone-950/20">
                   <div className="flex justify-between items-center">
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-widest text-gold-400">Produtos Cadastrados ({products.length})</h3>
@@ -1611,9 +1732,18 @@ export default function AdminModal({
                             />
                             <div className="min-w-0">
                               <h4 className="font-semibold text-stone-200 truncate pr-2" title={p.name}>{p.name}</h4>
-                              <div className="flex items-center space-x-2 mt-0.5 text-[10px]">
+                              <div className="flex items-center space-x-2 mt-0.5 text-[10px] flex-wrap gap-y-1">
                                 <span className="px-1.5 py-0.5 rounded-full bg-burgundy-950 text-gold-300 font-bold border border-gold-400/20 uppercase tracking-wide">
                                   {p.category}
+                                </span>
+                                {p.isLastUnits && (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-extrabold border border-amber-500/30 uppercase tracking-wide flex items-center gap-0.5">
+                                    <Flame className="w-2.5 h-2.5 text-amber-400 fill-amber-400/30" />
+                                    Últimas Unidades
+                                  </span>
+                                )}
+                                <span className="px-1.5 py-0.5 rounded-full bg-stone-900 text-stone-300 font-medium border border-stone-800">
+                                  Estoque: <strong className={p.stockQuantity && p.stockQuantity > 0 ? "text-emerald-400" : "text-amber-400"}>{p.stockQuantity ?? 0} un</strong>
                                 </span>
                                 <span className="text-stone-400 font-semibold">
                                   {p.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
@@ -1659,7 +1789,7 @@ export default function AdminModal({
               <div className="flex-1 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row min-h-0 text-stone-200 animate-in fade-in duration-200">
                 
                 {/* Left Side: Parameters & Configuration */}
-                <div className="w-full lg:w-1/2 p-6 lg:border-r border-burgundy-900/40 space-y-5 lg:overflow-y-auto">
+                <div className="w-full lg:w-1/2 p-4 sm:p-6 lg:border-r border-burgundy-900/40 space-y-5 overflow-y-auto">
                   <div className="space-y-1">
                     <h3 className="text-sm font-bold text-gold-300 font-display flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-gold-400 animate-pulse" />
